@@ -187,6 +187,7 @@ def test_feed_registry_connector_fetches_live_payloads_with_browser_headers_when
 
     def fake_urlopen(request: Request, *args, **kwargs) -> DummyResponse:
         requests.append(request)
+        assert kwargs.get("timeout") == 20
         return DummyResponse()
 
     monkeypatch.setattr(feed_registry_module, "urlopen", fake_urlopen)

@@ -1,7 +1,9 @@
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request
 
+import hermes_pulse.connectors.known_source_search as known_source_search_module
 from hermes_pulse.connectors.known_source_search import KnownSourceSearchConnector
 from hermes_pulse.models import SourceRegistryEntry
 
@@ -306,3 +308,48 @@ def test_known_source_search_connector_falls_back_to_bing_rss_when_duckduckgo_re
         "https://www.zeiss.com/cine-lenses/us/news-events/news/supreme-prime-radiance.html"
     ]
     assert items[0].title == "Zeiss cine update"
+
+
+def test_known_source_search_fetches_live_payloads_with_browser_headers_and_timeout_when_no_fetcher_is_provided(
+    monkeypatch,
+) -> None:
+    requests: list[Request] = []
+    timeouts: list[object] = []
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return FIXTURE_HTML.encode("utf-8")
+
+    def fake_urlopen(request: Request, *args, **kwargs) -> DummyResponse:
+        requests.append(request)
+        timeouts.append(kwargs.get("timeout"))
+        return DummyResponse()
+
+    monkeypatch.setattr(known_source_search_module, "urlopen", fake_urlopen)
+    entry = SourceRegistryEntry(
+        id="discovery-only-source",
+        source_family="discovery_blog",
+        domain="discover.example.net",
+        title="Discovery Source",
+        acquisition_mode="known_source_search",
+        authority_tier="discovery_only",
+        search_hints=["rumors", "supply chain"],
+    )
+
+    items = KnownSourceSearchConnector().collect([entry])
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert isinstance(request, Request)
+    assert request.full_url == "https://html.duckduckgo.com/html/?q=site%3Adiscover.example.net+rumors+supply+chain"
+    headers = {key.lower(): value for key, value in request.header_items()}
+    assert headers["user-agent"]
+    assert headers["accept"]
+    assert timeouts == [20]
+    assert len(items) == 1

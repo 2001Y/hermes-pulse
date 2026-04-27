@@ -13,6 +13,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; HermesPulse/0.1; +https://github.com/2001Y/HermesPulse)",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
 }
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
 DEFAULT_ARTICLE_BODY_MAX_LENGTH = 1200
 
 
@@ -190,7 +191,7 @@ def _extract_article_text(payload: str) -> str | None:
 
 def _fetch_url(url: str) -> str:
     request = Request(url, headers=DEFAULT_HEADERS)
-    with urlopen(request) as response:
+    with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
         return response.read().decode("utf-8")
 
 
