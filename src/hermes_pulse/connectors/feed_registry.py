@@ -15,6 +15,7 @@ DEFAULT_HEADERS = {
 }
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
 DEFAULT_ARTICLE_BODY_MAX_LENGTH = 1200
+MAX_ITEMS_PER_SOURCE = 20
 
 
 class FeedRegistryConnector:
@@ -40,7 +41,15 @@ class FeedRegistryConnector:
                 continue
             try:
                 payload = self._fetcher(entry.rss_url)
-                items.extend(self._parse_items(entry, payload, source_url=entry.rss_url, visited_urls={entry.rss_url}))
+                items.extend(
+                    self._parse_items(
+                        entry,
+                        payload,
+                        source_url=entry.rss_url,
+                        visited_urls={entry.rss_url},
+                        remaining_budget=MAX_ITEMS_PER_SOURCE,
+                    )
+                )
                 if self._success_handler is not None:
                     self._success_handler(entry.id)
             except Exception as exc:
@@ -56,12 +65,23 @@ class FeedRegistryConnector:
         *,
         source_url: str,
         visited_urls: set[str],
+        remaining_budget: int,
     ) -> list[CollectedItem]:
+        if remaining_budget <= 0:
+            return []
         root = ElementTree.fromstring(payload)
         if _local_name(root.tag) in {"urlset", "sitemapindex"}:
-            return self._parse_sitemap_items(entry, root, source_url=source_url, visited_urls=visited_urls)
+            return self._parse_sitemap_items(
+                entry,
+                root,
+                source_url=source_url,
+                visited_urls=visited_urls,
+                remaining_budget=remaining_budget,
+            )
         parsed_items: list[CollectedItem] = []
         for raw_item in _iter_feed_items(root):
+            if len(parsed_items) >= remaining_budget:
+                break
             title = _text(raw_item, "title")
             url = _item_link(raw_item)
             guid = _text(raw_item, "guid") or _text(raw_item, "id") or url or title or entry.id
@@ -97,24 +117,37 @@ class FeedRegistryConnector:
         *,
         source_url: str,
         visited_urls: set[str],
+        remaining_budget: int,
     ) -> list[CollectedItem]:
+        if remaining_budget <= 0:
+            return []
         root_name = _local_name(root.tag)
         if root_name == "sitemapindex":
             nested_items: list[CollectedItem] = []
             for sitemap in _children(root, "sitemap"):
+                if len(nested_items) >= remaining_budget:
+                    break
                 nested_url = _text(sitemap, "loc")
                 if not nested_url or nested_url in visited_urls:
                     continue
                 visited_urls.add(nested_url)
                 payload = self._fetcher(nested_url)
                 nested_items.extend(
-                    self._parse_items(entry, payload, source_url=nested_url, visited_urls=visited_urls)
+                    self._parse_items(
+                        entry,
+                        payload,
+                        source_url=nested_url,
+                        visited_urls=visited_urls,
+                        remaining_budget=remaining_budget - len(nested_items),
+                    )
                 )
             return nested_items
 
         relation = "primary" if entry.authority_tier == "primary" else "secondary"
         parsed_items: list[CollectedItem] = []
         for index, url_node in enumerate(_children(root, "url"), start=1):
+            if len(parsed_items) >= remaining_budget:
+                break
             url = _text(url_node, "loc")
             if not url or not _url_matches_domain(url, entry.domain):
                 continue

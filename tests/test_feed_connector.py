@@ -140,6 +140,90 @@ def test_feed_registry_connector_collects_sitemap_urls_as_document_items() -> No
     assert items[0].provenance.acquisition_mode == "rss_poll"
 
 
+def test_feed_registry_connector_caps_sitemap_document_items_per_source() -> None:
+    entry = SourceRegistryEntry(
+        id="meike-cine",
+        source_family="official_cine_news",
+        domain="meikeglobal.com",
+        title="Meike Cine",
+        acquisition_mode="rss_poll",
+        authority_tier="primary",
+        rss_url="https://meikeglobal.com/sitemap.xml",
+    )
+    sitemap_urls = "\n".join(
+        f"  <url><loc>https://meikeglobal.com/news/item-{index}</loc></url>" for index in range(40)
+    )
+    payload = f"<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>{sitemap_urls}</urlset>"
+
+    items = FeedRegistryConnector(fetcher=lambda url: payload).collect([entry])
+
+    assert len(items) == 20
+    assert items[0].url == "https://meikeglobal.com/news/item-0"
+    assert items[-1].url == "https://meikeglobal.com/news/item-19"
+
+
+def test_feed_registry_connector_caps_sitemap_index_items_across_nested_sitemaps() -> None:
+    entry = SourceRegistryEntry(
+        id="meike-cine",
+        source_family="official_cine_news",
+        domain="meikeglobal.com",
+        title="Meike Cine",
+        acquisition_mode="rss_poll",
+        authority_tier="primary",
+        rss_url="https://meikeglobal.com/sitemap.xml",
+    )
+    sitemap_index = """<?xml version='1.0' encoding='UTF-8'?>
+    <sitemapindex xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>
+      <sitemap><loc>https://meikeglobal.com/sitemap-a.xml</loc></sitemap>
+      <sitemap><loc>https://meikeglobal.com/sitemap-b.xml</loc></sitemap>
+    </sitemapindex>
+    """
+    sitemap_a = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(
+        f"<url><loc>https://meikeglobal.com/news/a-{index}</loc></url>" for index in range(15)
+    ) + "</urlset>"
+    sitemap_b = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(
+        f"<url><loc>https://meikeglobal.com/news/b-{index}</loc></url>" for index in range(15)
+    ) + "</urlset>"
+
+    def fetcher(url: str) -> str:
+        if url == "https://meikeglobal.com/sitemap.xml":
+            return sitemap_index
+        if url == "https://meikeglobal.com/sitemap-a.xml":
+            return sitemap_a
+        if url == "https://meikeglobal.com/sitemap-b.xml":
+            return sitemap_b
+        raise AssertionError(url)
+
+    items = FeedRegistryConnector(fetcher=fetcher).collect([entry])
+
+    assert len(items) == 20
+    assert items[0].url == "https://meikeglobal.com/news/a-0"
+    assert items[-1].url == "https://meikeglobal.com/news/b-4"
+
+
+def test_feed_registry_connector_caps_feed_items_per_source() -> None:
+    entry = SourceRegistryEntry(
+        id="openai-news",
+        source_family="official_lab_news",
+        domain="openai.com",
+        title="OpenAI News",
+        acquisition_mode="rss_poll",
+        authority_tier="primary",
+        rss_url="https://openai.com/news/rss.xml",
+    )
+    items_xml = "".join(
+        f"<item><title>Item {index}</title><link>https://openai.com/news/item-{index}</link><guid>g-{index}</guid><description>d</description></item>"
+        for index in range(40)
+    )
+    payload = f"<?xml version='1.0' encoding='UTF-8'?><rss><channel>{items_xml}</channel></rss>"
+
+    items = FeedRegistryConnector(fetcher=lambda url: payload).collect([entry])
+
+    assert len(items) == 20
+    assert items[0].title == "Item 0"
+    assert items[-1].title == "Item 19"
+
+
 def test_feed_registry_connector_enriches_body_from_article_page_when_available() -> None:
     entries = load_source_registry(Path("fixtures/source_registry/sample_sources.yaml"))
     connector = FeedRegistryConnector(

@@ -351,5 +351,5 @@ def test_known_source_search_fetches_live_payloads_with_browser_headers_and_time
     headers = {key.lower(): value for key, value in request.header_items()}
     assert headers["user-agent"]
     assert headers["accept"]
-    assert timeouts == [20]
+    assert timeouts == [5]
     assert len(items) == 1

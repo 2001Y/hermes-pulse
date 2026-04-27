@@ -15,7 +15,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; HermesPulse/0.1; +https://github.com/2001Y/HermesPulse)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BING_RSS_ENDPOINT = "https://www.bing.com/search?format=rss"
