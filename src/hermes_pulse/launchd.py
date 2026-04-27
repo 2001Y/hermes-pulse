@@ -19,6 +19,7 @@ class DirectDeliveryWrapperSpec:
     python_executable: Path
     repo_root: Path
     channel: str
+    digest_command: str = "morning-digest"
     thread_ts: str | None = None
     archive_root: Path | None = None
     source_registry: Path | None = None
@@ -94,6 +95,8 @@ def build_direct_delivery_program_arguments(spec: DirectDeliveryWrapperSpec) -> 
         str(spec.python_executable),
         "-m",
         "hermes_pulse.direct_delivery",
+        "--command",
+        spec.digest_command,
         "--channel",
         spec.channel,
     ]
@@ -124,7 +127,7 @@ def build_direct_delivery_program_arguments(spec: DirectDeliveryWrapperSpec) -> 
 def _render_optional_refresh_command(command: str, *, warning_message: str) -> str:
     return "\n".join(
         [
-            f"if ! {command}; then",
+            f"if ! {command} >/dev/null 2>&1; then",
             f'  echo "{warning_message}" >&2',
             "fi",
         ]
@@ -184,9 +187,9 @@ def render_direct_delivery_wrapper(spec: DirectDeliveryWrapperSpec) -> str:
             refresh_commands.append(
                 "\n".join(
                     [
-                        f"if ! {refresh_command}; then",
+                        f"if ! {refresh_command} >/dev/null 2>&1; then",
                         '  echo "warning: grok history refresh failed; trying Chrome History fallback" >&2',
-                        f"  if ! {fallback_command}; then",
+                        f"  if ! {fallback_command} >/dev/null 2>&1; then",
                         '    echo "warning: grok history fallback also failed; continuing with existing import" >&2',
                         "  fi",
                         "fi",

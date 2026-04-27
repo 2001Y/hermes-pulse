@@ -31,6 +31,7 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
         x_signals="bookmarks,likes,home_timeline_reverse_chronological",
         codex_model="gpt-5.4",
         summary_format="briefing-v1",
+        digest_command="evening-digest",
     )
 
     wrapper = render_direct_delivery_wrapper(spec)
@@ -48,14 +49,14 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
     assert 'X_OAUTH2_EXPIRATION_TIME' in wrapper
     assert 'oauth2_tokens' in wrapper
     assert 'default_user' in wrapper
-    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-x-oauth2 --shared-env-path /Users/akitani/.config/env/shared.env --xurl-app-name default --min-valid-seconds 900; then' in wrapper
+    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-x-oauth2 --shared-env-path /Users/akitani/.config/env/shared.env --xurl-app-name default --min-valid-seconds 900 >/dev/null 2>&1; then' in wrapper
     assert 'echo "warning: X OAuth2 refresh failed; digest will continue without X signals" >&2' in wrapper
-    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-chatgpt-history --input-dir /Users/akitani/Downloads --output-dir /Users/akitani/Pulse/Imports/chatgpt; then' in wrapper
+    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-chatgpt-history --input-dir /Users/akitani/Downloads --output-dir /Users/akitani/Pulse/Imports/chatgpt >/dev/null 2>&1; then' in wrapper
     assert 'echo "warning: chatgpt history refresh failed; continuing with existing import" >&2' in wrapper
-    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-grok-history --output-dir /Users/akitani/Pulse/Imports/grok/browser-export --cdp-port 9223 --page-size 100; then' in wrapper
+    assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-grok-history --output-dir /Users/akitani/Pulse/Imports/grok/browser-export --cdp-port 9223 --page-size 100 >/dev/null 2>&1; then' in wrapper
     assert 'echo "warning: grok history refresh failed; trying Chrome History fallback" >&2' in wrapper
     fallback_line = next(line for line in wrapper.splitlines() if "refresh-grok-history-fallback" in line)
-    assert shlex.split(fallback_line.strip().removeprefix("if ! ").removesuffix("; then")) == [
+    assert shlex.split(fallback_line.strip().removeprefix("if ! ").removesuffix(" >/dev/null 2>&1; then")) == [
         "/opt/homebrew/bin/python3",
         "-m",
         "hermes_pulse.cli",
@@ -73,6 +74,8 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
         "/opt/homebrew/bin/python3",
         "-m",
         "hermes_pulse.direct_delivery",
+        "--command",
+        "evening-digest",
         "--channel",
         "C123456",
         "--thread-ts",
@@ -204,6 +207,7 @@ def test_generate_launchd_artifacts_writes_wrapper_and_plist_to_output_directory
             x_signals="bookmarks,likes",
             codex_model="gpt-5.4",
             summary_format="briefing-v1",
+            digest_command="evening-digest",
         ),
         plist_spec=LaunchdPlistSpec(
             label="ai.hermes.pulse.direct-delivery",
@@ -223,7 +227,7 @@ def test_generate_launchd_artifacts_writes_wrapper_and_plist_to_output_directory
 
     wrapper = artifacts.wrapper_path.read_text()
     refresh_chatgpt_line = next(line for line in wrapper.splitlines() if "refresh-chatgpt-history" in line)
-    assert shlex.split(refresh_chatgpt_line.removeprefix("if ! ").removesuffix("; then")) == [
+    assert shlex.split(refresh_chatgpt_line.removeprefix("if ! ").removesuffix(" >/dev/null 2>&1; then")) == [
         "/opt/homebrew/bin/python3",
         "-m",
         "hermes_pulse.cli",
@@ -238,6 +242,8 @@ def test_generate_launchd_artifacts_writes_wrapper_and_plist_to_output_directory
         "/opt/homebrew/bin/python3",
         "-m",
         "hermes_pulse.direct_delivery",
+        "--command",
+        "evening-digest",
         "--channel",
         "C123456",
         "--archive-root",

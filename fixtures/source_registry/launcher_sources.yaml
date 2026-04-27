@@ -1,61 +1,88 @@
-sources:
-- id: apple-newsroom
-  source_family: official_newsroom
-  domain: apple.com
-  title: Apple Newsroom
-  acquisition_mode: rss_poll
-  authority_tier: primary
-  rss_url: https://www.apple.com/newsroom/rss-feed.rss
-  search_hints:
-  - site:apple.com/newsroom Apple press release
-  topical_scopes:
-  - apple
-  - devices
-  - services
-  language: en
-  requires_primary_confirmation: false
-- id: apple-developer-news
-  source_family: official_developer_news
-  domain: developer.apple.com
-  title: Apple Developer News
-  acquisition_mode: rss_poll
-  authority_tier: primary
-  rss_url: https://developer.apple.com/news/rss/news.rss
-  search_hints:
-  - site:developer.apple.com/news Apple developer news
-  topical_scopes:
-  - apple
-  - developer
-  - frameworks
-  language: en
-  requires_primary_confirmation: false
-- id: anthropic-newsroom
-  source_family: official_lab_news
-  domain: anthropic.com
-  title: Anthropic Newsroom
-  acquisition_mode: known_source_search
-  authority_tier: primary
-  search_hints:
-  - site:anthropic.com/news Anthropic announcement
-  topical_scopes:
-  - ai
-  - llm
-  - safety
-  - agents
-  language: en
-  requires_primary_confirmation: false
-- id: xai-news
-  source_family: official_lab_news
-  domain: x.ai
-  title: xAI News
-  acquisition_mode: known_source_search
-  authority_tier: primary
-  search_hints:
-  - site:x.ai/news xAI announcement
-  topical_scopes:
-  - ai
-  - llm
-  - grok
-  - speech
-  language: en
-  requires_primary_confirmation: false
+include: default_sources.yaml
+only_ids:
+  - apple-newsroom
+  - apple-developer-news
+  - aapl-ch
+  - nine-to-five-mac
+  - macrumors
+  - openai-news
+  - anthropic-newsroom
+  - xai-news
+  - google-ai-blog
+  - meta-ai-blog
+  - xtech
+  - itmedia-news
+  - publickey
+  - nikkei-markets
+  - bloomberg-japan
+  - reuters-finance
+  - tesla-news
+  - electrek
+  - insideevs
+  - car-watch
+  - byd-global
+  - hyundai-worldwide
+  - kia-global
+  - nio-global
+  - polestar-news
+  - mini-news
+  - bmw-group-news
+  - motor1
+  - carscoops
+  - top-gear
+  - dpreview
+  - petapixel
+  - digital-camera-watch
+  - canon-rumors
+  - nikon-rumors
+  - sonyalpha-rumors
+  - fuji-rumors
+  - leica-rumors
+  - photo-rumors
+  - mirrorless-rumors
+  - 43-rumors
+  - viltrox-global
+  - laowa-global
+  - ttartisan-global
+  - sevenartisans-global
+  - sigma-global
+  - tamron-global
+  - voigtlander-global
+  - zeiss-photography
+  - blackmagic-design
+  - red-digital-cinema
+  - arri-news
+  - canon-cinema-eos
+  - sony-cine
+  - cooke-optics
+  - zeiss-cine
+  - sigma-cine
+  - dzofilm
+  - laowa-cine
+  - viltrox-cine
+  - cined
+  - no-film-school
+  - newsshooter
+  - provideo-coalition
+  - frameio-insider
+  - studiodaily
+  - redshark-news
+  - ymcinema-magazine
+  - angenieux
+  - atlas-lens-co
+  - nisi-cine
+  - tokina-cinema
+  - xeen
+  - schneider-kreuznach-cine
+  - thypoch
+  - meike-cine
+  - sirui-cine
+  - irix-cine
+  - leitz-cine
+  - canon-cinema-lens
+  - fujinon-cine-broadcast
+  - sony-cinema-lens
+  - panasonic-leica-lmount-video
+  - dulens
+  - blazar
+  - great-joy

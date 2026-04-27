@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import inspect
 import json
 import re
 import time
@@ -52,6 +53,7 @@ class DirectDeliveryResult:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hermes-pulse-direct-delivery")
+    parser.add_argument("--command", choices=("morning-digest", "evening-digest"), default="morning-digest")
     parser.add_argument("--source-registry", type=Path)
     parser.add_argument("--feed-fixture", type=Path)
     parser.add_argument("--search-fixture", type=Path)
@@ -76,18 +78,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None, *, post_message: SlackPoster | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
-    run_morning_digest_direct_delivery(args, post_message=post_message)
+    run_digest_direct_delivery(args, post_message=post_message)
     return 0
 
 
-def run_morning_digest_direct_delivery(
+def run_digest_direct_delivery(
     args: argparse.Namespace,
     *,
     post_message: SlackPoster | None = None,
 ) -> DirectDeliveryResult:
-    items, source_errors, _successful_sources = _build_digest_with_source_errors("morning-digest", args)
+    command = getattr(args, "command", "morning-digest")
+    items, source_errors, _successful_sources = _build_digest_with_source_errors(command, args)
     archive_root = args.archive_root or Path.home() / "Pulse"
-    occurred_at = _occurred_at_for_command("morning-digest", args)
+    occurred_at = _occurred_at_for_command(command, args)
     archive_directory = write_morning_digest_archive(
         items=items,
         archive_root=archive_root,
@@ -104,6 +107,7 @@ def run_morning_digest_direct_delivery(
         archive_directory,
         codex_model=args.codex_model,
         summary_format=args.summary_format,
+        digest_command=command,
     )
     return post_canonical_digest_to_slack(
         archive_directory,
@@ -114,11 +118,20 @@ def run_morning_digest_direct_delivery(
     )
 
 
+def run_morning_digest_direct_delivery(
+    args: argparse.Namespace,
+    *,
+    post_message: SlackPoster | None = None,
+) -> DirectDeliveryResult:
+    return run_digest_direct_delivery(args, post_message=post_message)
+
+
 def _summarize_archive_with_retries(
     archive_directory: Path,
     *,
     codex_model: str = DEFAULT_CODEX_MODEL,
     summary_format: str = DEFAULT_SUMMARY_FORMAT,
+    digest_command: str = "morning-digest",
     retry_delays_seconds: Sequence[int] = DEFAULT_RETRY_DELAYS_SECONDS,
     summarizer_factory: Callable[..., Any] | None = None,
     sleep: Callable[[int], None] = time.sleep,
@@ -132,7 +145,12 @@ def _summarize_archive_with_retries(
     for attempt_index in range(attempts):
         started_at = _utc_now_isoformat()
         try:
-            summarizer = factory(model=codex_model, summary_format=summary_format)
+            summarizer = _build_summarizer(
+                factory,
+                codex_model=codex_model,
+                summary_format=summary_format,
+                digest_command=digest_command,
+            )
             artifact = summarizer.summarize_archive(archive_directory)
             attempt_metadata.append(
                 {
@@ -172,6 +190,24 @@ def _summarize_archive_with_retries(
             sleep(delays[attempt_index])
     assert last_error is not None
     raise last_error
+
+
+def _build_summarizer(
+    factory: Callable[..., Any],
+    *,
+    codex_model: str,
+    summary_format: str,
+    digest_command: str,
+) -> Any:
+    kwargs: dict[str, Any] = {"model": codex_model, "summary_format": summary_format}
+    try:
+        parameters = inspect.signature(factory).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    supports_var_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+    if supports_var_kwargs or "digest_command" in parameters:
+        kwargs["digest_command"] = digest_command
+    return factory(**kwargs)
 
 
 def _persist_codex_attempt_metadata(
@@ -233,17 +269,11 @@ def post_canonical_digest_to_slack(
         raise FileNotFoundError(f"Canonical Codex digest artifact is missing: {digest_path}")
 
     content = digest_path.read_text()
-    raw_messages = list((summary_artifact.partial_contents or [content]) if summary_artifact is not None else [content])
-    rendered_messages = [
-        _prepend_grok_fallback_notice_if_needed(
-            _prepend_source_error_notice_if_needed(_render_digest_for_slack(message), archive_directory),
-            archive_directory,
-        )
-        for message in raw_messages
-    ]
-    message_chunks: list[str] = []
-    for rendered_message in rendered_messages:
-        message_chunks.extend(_split_slack_text(rendered_message, limit=slack_message_limit))
+    rendered_message = _prepend_grok_fallback_notice_if_needed(
+        _prepend_source_error_notice_if_needed(_render_digest_for_slack(content), archive_directory),
+        archive_directory,
+    )
+    message_chunks = _split_slack_text(rendered_message, limit=slack_message_limit)
     message_chunk_blocks = [_build_slack_blocks(chunk) for chunk in message_chunks]
     poster = post_message or load_slack_direct_post_message()
     slack_responses = _post_slack_chunks(
@@ -392,14 +422,7 @@ def _split_slack_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) ->
     chunks: list[str] = []
     remaining = text
     while len(remaining) > limit:
-        split_at = remaining.rfind("\n\n", 0, limit + 1)
-        separator_length = 2
-        if split_at == -1:
-            split_at = remaining.rfind("\n", 0, limit + 1)
-            separator_length = 1
-        if split_at == -1 or split_at < limit // 2:
-            split_at = limit
-            separator_length = 0
+        split_at, separator_length = _find_slack_split_point(remaining, limit)
         chunk = remaining[:split_at].rstrip()
         if chunk:
             chunks.append(chunk)
@@ -407,6 +430,25 @@ def _split_slack_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) ->
     if remaining:
         chunks.append(remaining)
     return chunks or [text]
+
+
+def _find_slack_split_point(text: str, limit: int) -> tuple[int, int]:
+    preferred_splitters = (
+        ("\n\n", 2),
+        ("\n- ", 1),
+        ("\n▫ ", 1),
+        ("\n# ", 1),
+        ("\n## ", 1),
+    )
+    for marker, separator_length in preferred_splitters:
+        split_at = text.rfind(marker, 0, limit + 1)
+        if split_at != -1 and split_at >= limit // 2:
+            return split_at, separator_length
+
+    split_at = text.rfind("\n", 0, limit + 1)
+    if split_at != -1 and split_at >= limit // 2:
+        return split_at, 1
+    return limit, 0
 
 
 def _post_slack_chunks(

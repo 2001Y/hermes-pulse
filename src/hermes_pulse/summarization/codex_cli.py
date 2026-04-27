@@ -26,11 +26,13 @@ class CodexCliSummarizer:
         *,
         model: str = DEFAULT_CODEX_MODEL,
         summary_format: str = DEFAULT_SUMMARY_FORMAT,
+        digest_command: str = "morning-digest",
         title_fetcher=None,
         title_synthesizer=None,
     ) -> None:
         self._invocation = invocation or CodexCliInvocation(model=model)
         self._summary_format = summary_format
+        self._digest_command = digest_command
         self._title_fetcher = title_fetcher or fetch_title_from_url
         self._title_synthesizer = title_synthesizer or synthesize_title_with_codex_spark
 
@@ -49,6 +51,7 @@ class CodexCliSummarizer:
                     archive_directory,
                     json.dumps(chunk, ensure_ascii=False),
                     summary_format=self._summary_format,
+                    digest_command=self._digest_command,
                     title_fetcher=self._title_fetcher,
                     title_synthesizer=self._title_synthesizer,
                     chunk_index=chunk_index,
@@ -58,7 +61,11 @@ class CodexCliSummarizer:
             if len(partial_summaries) == 1:
                 content = partial_summaries[0]
             else:
-                merge_prompt = build_codex_merge_prompt(partial_summaries, summary_format=self._summary_format)
+                merge_prompt = build_codex_merge_prompt(
+                    partial_summaries,
+                    summary_format=self._summary_format,
+                    digest_command=self._digest_command,
+                )
                 content = self._invocation.run(merge_prompt, cwd=codex_context)
 
         output_path = archive_directory / CODEX_DIGEST_RELATIVE_PATH
@@ -119,6 +126,7 @@ def build_codex_digest_prompt(
     raw_items: str,
     *,
     summary_format: str = DEFAULT_SUMMARY_FORMAT,
+    digest_command: str = "morning-digest",
     title_fetcher=None,
     title_synthesizer=None,
     chunk_index: int = 1,
@@ -138,9 +146,13 @@ def build_codex_digest_prompt(
         "本文中のリンクは可能な限り保持し、URL を壊さないでください。",
         "不明な点は断定せず、与えられた情報だけで簡潔に要約してください。",
         "内部的な source 名や流入元ラベルではなく、見えている内容そのものを同列に扱ってください。",
+        "同じサービス・製品・AIモデルに関する話題は、会社・組織単位より優先してサービスごとにまとまりを意識して整理してください。",
+        "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください。",
+        "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください。",
+        "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください。",
         f"この prompt は収集差分 chunk {chunk_index}/{chunk_total} です。chunk 内の重要事項を取りこぼさず要約してください。",
         "",
-        *build_summary_format_instructions(summary_format),
+        *build_summary_format_instructions(summary_format, digest_command=digest_command),
         "",
         "## item counts",
         "```json",
@@ -156,15 +168,24 @@ def build_codex_digest_prompt(
     return "\n".join(lines)
 
 
-def build_codex_merge_prompt(chunk_summaries: list[str], *, summary_format: str = DEFAULT_SUMMARY_FORMAT) -> str:
+def build_codex_merge_prompt(
+    chunk_summaries: list[str],
+    *,
+    summary_format: str = DEFAULT_SUMMARY_FORMAT,
+    digest_command: str = "morning-digest",
+) -> str:
     lines = [
         "あなたは Hermes Pulse の最終編集担当です。",
         "以下は複数 chunk から作った部分要約です。重要事項を重複なく統合し、最終版だけを返してください。",
         "出力は briefing-v1 を維持しつつ、内容はほぼそのまま維持してください。",
         "明らかに関連する項目だけを軽く統合し、項目数を不必要に減らさないでください。",
         "情報量を落としすぎず、同一テーマの重複 bullet は最小限だけ統合してください。",
+        "同じサービス・製品・AIモデルに関する話題は、会社・組織単位より優先してサービスごとにまとまりを意識して整理してください。",
+        "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください。",
+        "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください。",
+        "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください。",
         "",
-        *build_summary_format_instructions(summary_format),
+        *build_summary_format_instructions(summary_format, digest_command=digest_command),
         "",
     ]
     for index, summary in enumerate(chunk_summaries, start=1):
@@ -182,18 +203,26 @@ def _stage_sanitized_codex_context(archive_directory: Path, codex_context: Path)
     codex_context.mkdir(parents=True, exist_ok=True)
 
 
-def build_summary_format_instructions(summary_format: str) -> list[str]:
+def build_summary_format_instructions(summary_format: str, *, digest_command: str = "morning-digest") -> list[str]:
     if summary_format == "briefing-v1":
+        title, schedule_heading = _briefing_v1_headings_for_command(digest_command)
         return [
             "出力フォーマットは briefing-v1 を厳守してください。",
-            "見出しはこの順番で固定してください: `☀ *Hermes Pulse Morning Briefing*` / `▫ 主要トピック` / `▫ 今日の予定・期限`。",
+            f"見出しはこの順番で固定してください: `{title}` / `▫ 主要トピック` / `{schedule_heading}`。",
             "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
             "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
             "`▫ 主要トピック` は必要な件数だけ箇条書きにしてよい。重要事項の取りこぼしを避け、各項目は 1 行で要点→必要なら文中リンク。",
+            "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
             "`▫ 主要トピック` は internal source 名に引きずられず、与えられた URL/title/本文断片を同列に見て重要度順に選んでください。",
-            "`▫ 今日の予定・期限` は当日または近い日時の予定だけを書く。無ければ `- 目立った予定なし`。",
+            f"`{schedule_heading}` は当日または近い日時の予定だけを書く。無ければ `- 目立った予定なし`。",
         ]
     raise ValueError(f"Unsupported summary format: {summary_format}")
+
+
+def _briefing_v1_headings_for_command(digest_command: str) -> tuple[str, str]:
+    if digest_command == "evening-digest":
+        return ("☾ *Hermes Pulse Evening Briefing*", "▫ 明日の予定・期限")
+    return ("☀ *Hermes Pulse Morning Briefing*", "▫ 今日の予定・期限")
 
 
 def _chunk_items(items: list[dict[str, object]], chunk_size: int) -> list[list[dict[str, object]]]:

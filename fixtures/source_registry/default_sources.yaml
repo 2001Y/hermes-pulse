@@ -196,3 +196,915 @@ sources:
     topical_scopes: [apple, ecosystem, commentary]
     language: en
     requires_primary_confirmation: true
+
+  - id: xtech
+    source_family: specialist_tech_media
+    domain: xtech.nikkei.com
+    title: 日経クロステック
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:xtech.nikkei.com AI クラウド ソフトウェア セキュリティ フィンテック
+    topical_scopes: [technology, enterprise, security, fintech]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: itmedia-news
+    source_family: specialist_tech_media
+    domain: itmedia.co.jp
+    title: ITmedia NEWS
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:itmedia.co.jp AI ソフトウェア クラウド セキュリティ 金融DX
+    topical_scopes: [technology, enterprise, ai, security]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: publickey
+    source_family: specialist_tech_media
+    domain: publickey1.jp
+    title: Publickey
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:publickey1.jp クラウド Kubernetes AI 開発
+    topical_scopes: [cloud, developer-tools, infrastructure, ai]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: nikkei-markets
+    source_family: financial_media
+    domain: nikkei.com
+    title: 日本経済新聞 マーケット
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:nikkei.com/markets 金融 市場 銀行 フィンテック
+    topical_scopes: [finance, banking, markets, fintech]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: bloomberg-japan
+    source_family: financial_media
+    domain: bloomberg.co.jp
+    title: Bloomberg Japan
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:bloomberg.co.jp 金融 市場 銀行 フィンテック
+    topical_scopes: [finance, markets, macro, banking]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: reuters-finance
+    source_family: financial_media
+    domain: reuters.com
+    title: Reuters Finance
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:reuters.com/markets finance banking fintech
+    topical_scopes: [finance, markets, macro, banking]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: tesla-news
+    source_family: official_automotive_news
+    domain: tesla.com
+    title: Tesla News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:tesla.com/blog Tesla vehicle FSD charging energy announcement
+    topical_scopes: [automotive, ev, autonomy, charging, energy]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: electrek
+    source_family: specialist_ev_media
+    domain: electrek.co
+    title: Electrek
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:electrek.co EV Tesla charging battery automotive
+    topical_scopes: [automotive, ev, batteries, charging]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: insideevs
+    source_family: specialist_ev_media
+    domain: insideevs.com
+    title: InsideEVs
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:insideevs.com EV battery charging automotive
+    topical_scopes: [automotive, ev, batteries, charging]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: car-watch
+    source_family: specialist_automotive_media
+    domain: car.watch.impress.co.jp
+    title: Car Watch
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:car.watch.impress.co.jp EV 自動車 バッテリー 充電
+    topical_scopes: [automotive, ev, japan-market, charging]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: byd-global
+    source_family: official_automotive_news
+    domain: byd.com
+    title: BYD Global News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:byd.com BYD EV battery charging vehicle announcement
+    topical_scopes: [automotive, ev, batteries, china-market]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: hyundai-worldwide
+    source_family: official_automotive_news
+    domain: hyundai.com
+    title: Hyundai Worldwide News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:hyundai.com/worldwide/en/company/newsroom Hyundai EV IONIQ software charging
+    topical_scopes: [automotive, ev, software, korea-market]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: kia-global
+    source_family: official_automotive_news
+    domain: kia.com
+    title: Kia Global News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:kia.com/worldwide/en/company/news Kia EV software charging
+    topical_scopes: [automotive, ev, software, korea-market]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: nio-global
+    source_family: official_automotive_news
+    domain: nio.com
+    title: NIO Global News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:nio.com/news NIO EV battery swap software autonomous
+    topical_scopes: [automotive, ev, batteries, china-market]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: polestar-news
+    source_family: official_automotive_news
+    domain: media.polestar.com
+    title: Polestar News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:media.polestar.com Polestar EV software charging battery news
+    topical_scopes: [automotive, ev, premium, software]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: mini-news
+    source_family: official_automotive_news
+    domain: mini.com
+    title: MINI News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:mini.com MINI electric cooper aceman countryman news
+    topical_scopes: [automotive, ev, mini, bmw-group]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: bmw-group-news
+    source_family: official_automotive_news
+    domain: bmwgroup.com
+    title: BMW Group News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:bmwgroup.com BMW Neue Klasse MINI Rolls-Royce EV battery software news
+    topical_scopes: [automotive, ev, premium, software]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: motor1
+    source_family: specialist_automotive_media
+    domain: motor1.com
+    title: Motor1
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:motor1.com EV reviews charging battery industry
+    topical_scopes: [automotive, ev, reviews, industry]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: carscoops
+    source_family: specialist_automotive_media
+    domain: carscoops.com
+    title: Carscoops
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:carscoops.com EV auto industry software charging
+    topical_scopes: [automotive, ev, industry, software]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: top-gear
+    source_family: specialist_automotive_media
+    domain: topgear.com
+    title: Top Gear
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:topgear.com/car-news EV review first drive battery charging
+    topical_scopes: [automotive, ev, reviews, culture]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: dpreview
+    source_family: specialist_camera_media
+    domain: dpreview.com
+    title: DPReview
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:dpreview.com camera lens review mirrorless compact
+    topical_scopes: [camera, lenses, mirrorless, reviews]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: petapixel
+    source_family: specialist_camera_media
+    domain: petapixel.com
+    title: PetaPixel
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:petapixel.com camera lens Chinese lens mirrorless news
+    topical_scopes: [camera, lenses, mirrorless, industry]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: digital-camera-watch
+    source_family: specialist_camera_media
+    domain: dc.watch.impress.co.jp
+    title: デジカメ Watch
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:dc.watch.impress.co.jp カメラ レンズ 中華レンズ ミラーレス
+    topical_scopes: [camera, lenses, japan-market, mirrorless]
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: canon-rumors
+    source_family: specialist_camera_rumors
+    domain: canonrumors.com
+    title: Canon Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:canonrumors.com Canon rumors camera lens RF
+    topical_scopes: [camera, canon, rumors, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: nikon-rumors
+    source_family: specialist_camera_rumors
+    domain: nikonrumors.com
+    title: Nikon Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:nikonrumors.com Nikon rumors camera lens Z-mount
+    topical_scopes: [camera, nikon, rumors, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: sonyalpha-rumors
+    source_family: specialist_camera_rumors
+    domain: sonyalpharumors.com
+    title: SonyAlpha Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:sonyalpharumors.com Sony Alpha rumors camera lens E-mount
+    topical_scopes: [camera, sony, rumors, mirrorless]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: fuji-rumors
+    source_family: specialist_camera_rumors
+    domain: fujirumors.com
+    title: Fuji Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:fujirumors.com Fuji rumors camera lens X-mount GFX
+    topical_scopes: [camera, fujifilm, rumors, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: leica-rumors
+    source_family: specialist_camera_rumors
+    domain: leicarumors.com
+    title: Leica Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:leicarumors.com Leica rumors camera lens Q M SL
+    topical_scopes: [camera, leica, rumors, premium]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: photo-rumors
+    source_family: specialist_camera_rumors
+    domain: photorumors.com
+    title: Photo Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:photorumors.com camera rumors lens rumors
+    topical_scopes: [camera, rumors, lenses, industry]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: mirrorless-rumors
+    source_family: specialist_camera_rumors
+    domain: mirrorlessrumors.com
+    title: Mirrorless Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:mirrorlessrumors.com mirrorless rumors camera lens
+    topical_scopes: [camera, rumors, mirrorless, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: 43-rumors
+    source_family: specialist_camera_rumors
+    domain: 43rumors.com
+    title: 43 Rumors
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:43rumors.com Micro Four Thirds rumors camera lens
+    topical_scopes: [camera, micro-four-thirds, rumors, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: viltrox-global
+    source_family: official_camera_news
+    domain: viltrox.com
+    title: Viltrox Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:viltrox.com Viltrox lens AF camera announcement
+    topical_scopes: [camera, lenses, chinese-lenses, mirrorless]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: laowa-global
+    source_family: official_camera_news
+    domain: venuslens.net
+    title: Laowa Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:venuslens.net Laowa lens macro probe camera announcement
+    topical_scopes: [camera, lenses, chinese-lenses, specialty]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: ttartisan-global
+    source_family: official_camera_news
+    domain: ttartisan.com
+    title: TTArtisan Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:ttartisan.com TTArtisan lens camera announcement
+    topical_scopes: [camera, lenses, chinese-lenses, manual-focus]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sevenartisans-global
+    source_family: official_camera_news
+    domain: 7artisans.com
+    title: 7Artisans Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:7artisans.com 7Artisans lens camera announcement
+    topical_scopes: [camera, lenses, chinese-lenses, manual-focus]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sigma-global
+    source_family: official_camera_news
+    domain: sigma-global.com
+    title: SIGMA Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:sigma-global.com Sigma lens camera fp BF cine announcement
+    topical_scopes: [camera, lenses, sigma, full-frame]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: tamron-global
+    source_family: official_camera_news
+    domain: tamron.com
+    title: TAMRON Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:tamron.com lens camera mirrorless Tamron announcement
+    topical_scopes: [camera, lenses, tamron, mirrorless]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: voigtlander-global
+    source_family: official_camera_news
+    domain: voigtlaender.de
+    title: Voigtländer Global
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:voigtlaender.de Voigtlander lens VM E Z announcement
+    topical_scopes: [camera, lenses, voigtlander, manual-focus]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: zeiss-photography
+    source_family: official_camera_news
+    domain: zeiss.com
+    title: ZEISS Photography
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:zeiss.com photography lens Otus Batis Loxia announcement
+    topical_scopes: [camera, lenses, zeiss, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: blackmagic-design
+    source_family: official_cine_news
+    domain: blackmagicdesign.com
+    title: Blackmagic Design
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:blackmagicdesign.com Blackmagic camera cinema davinci resolve announcement
+    topical_scopes: [cine, cameras, post-production, blackmagic]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: red-digital-cinema
+    source_family: official_cine_news
+    domain: red.com
+    title: RED Digital Cinema
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:red.com RED cinema camera Komodo V-Raptor announcement
+    topical_scopes: [cine, cameras, red, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: arri-news
+    source_family: official_cine_news
+    domain: arri.com
+    title: ARRI News
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:arri.com ARRI camera lighting cinema announcement
+    topical_scopes: [cine, cameras, lighting, arri]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: canon-cinema-eos
+    source_family: official_cine_news
+    domain: usa.canon.com
+    title: Canon Cinema EOS
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:usa.canon.com Cinema EOS camera lens announcement
+    topical_scopes: [cine, cameras, canon, lenses]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sony-cine
+    source_family: official_cine_news
+    domain: sony.com
+    title: Sony Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:sony.com CineAlta FX cinema camera lens announcement
+    topical_scopes: [cine, cameras, sony, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: cooke-optics
+    source_family: official_cine_news
+    domain: cookeoptics.com
+    title: Cooke Optics
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:cookeoptics.com cine lens announcement
+    topical_scopes: [cine, lenses, cooke, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: zeiss-cine
+    source_family: official_cine_news
+    domain: zeiss.com
+    title: ZEISS Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:zeiss.com cine lens supreme radiance nano announcement
+    topical_scopes: [cine, lenses, zeiss, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sigma-cine
+    source_family: official_cine_news
+    domain: sigma-global.com
+    title: SIGMA Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:sigma-global.com cine lens Sigma announcement
+    topical_scopes: [cine, lenses, sigma, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: dzofilm
+    source_family: official_cine_news
+    domain: dzofilm.com
+    title: DZOFilm
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:dzofilm.com cine lens camera announcement
+    topical_scopes: [cine, lenses, dzofilm, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: laowa-cine
+    source_family: official_cine_news
+    domain: venuslens.net
+    title: Laowa Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:venuslens.net cine Laowa lens announcement
+    topical_scopes: [cine, lenses, laowa, specialty]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: viltrox-cine
+    source_family: official_cine_news
+    domain: viltrox.com
+    title: Viltrox Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:viltrox.com cine lens announcement
+    topical_scopes: [cine, lenses, viltrox, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: cined
+    source_family: specialist_cine_media
+    domain: cined.com
+    title: CineD
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:cined.com cinema camera lens review test
+    topical_scopes: [cine, reviews, cameras, lenses]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: no-film-school
+    source_family: specialist_cine_media
+    domain: nofilmschool.com
+    title: No Film School
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:nofilmschool.com cinema camera filmmaking lens news
+    topical_scopes: [cine, filmmaking, industry, production]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: newsshooter
+    source_family: specialist_cine_media
+    domain: newsshooter.com
+    title: Newsshooter
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:newsshooter.com cinema camera lens review production
+    topical_scopes: [cine, reviews, production, cameras]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: provideo-coalition
+    source_family: specialist_cine_media
+    domain: provideocoalition.com
+    title: ProVideo Coalition
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:provideocoalition.com cinema camera lens post production news
+    topical_scopes: [cine, post-production, industry, cameras]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: frameio-insider
+    source_family: specialist_cine_media
+    domain: frame.io
+    title: Frame.io Insider
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:frame.io/blog filmmaking camera post production insider
+    topical_scopes: [cine, post-production, workflow, cameras]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: studiodaily
+    source_family: specialist_cine_media
+    domain: studiodaily.com
+    title: StudioDaily
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:studiodaily.com cinema production camera post news
+    topical_scopes: [cine, production, post-production, industry]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: redshark-news
+    source_family: specialist_cine_media
+    domain: redsharknews.com
+    title: RedShark News
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:redsharknews.com cinema camera lens production news
+    topical_scopes: [cine, cameras, production, industry]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: ymcinema-magazine
+    source_family: specialist_cine_media
+    domain: ymcinema.com
+    title: Y.M.Cinema Magazine
+    acquisition_mode: known_source_search
+    authority_tier: trusted_secondary
+    search_hints:
+      - site:ymcinema.com cinema camera lens production news
+    topical_scopes: [cine, cameras, lenses, production]
+    language: en
+    requires_primary_confirmation: true
+
+  - id: angenieux
+    source_family: official_cine_news
+    domain: angenieux.com
+    title: Angénieux
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:angenieux.com cine lens zoom announcement
+    topical_scopes: [cine, lenses, angenieux, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: atlas-lens-co
+    source_family: official_cine_news
+    domain: atlaslensco.com
+    title: Atlas Lens Co.
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:atlaslensco.com cine lens anamorphic announcement
+    topical_scopes: [cine, lenses, anamorphic, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: nisi-cine
+    source_family: official_cine_news
+    domain: nisifilters.com
+    title: NiSi Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:nisifilters.com cine lens Athena Aureus announcement
+    topical_scopes: [cine, lenses, nisi, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: tokina-cinema
+    source_family: official_cine_news
+    domain: tokinalens.com
+    title: Tokina Cinema
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:tokinalens.com cinema lens Vista announcement
+    topical_scopes: [cine, lenses, tokina, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: xeen
+    source_family: official_cine_news
+    domain: xeenlens.com
+    title: XEEN
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:xeenlens.com cine lens Samyang XEEN announcement
+    topical_scopes: [cine, lenses, xeen, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: schneider-kreuznach-cine
+    source_family: official_cine_news
+    domain: schneiderkreuznach.com
+    title: Schneider Kreuznach Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:schneiderkreuznach.com cine lens announcement
+    topical_scopes: [cine, lenses, schneider, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: thypoch
+    source_family: official_camera_news
+    domain: thypoch.com
+    title: Thypoch
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:thypoch.com lens camera Simera announcement
+    topical_scopes: [camera, lenses, thypoch, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: meike-cine
+    source_family: official_cine_news
+    domain: meikeglobal.com
+    title: Meike Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:meikeglobal.com cine lens announcement
+    topical_scopes: [cine, lenses, meike, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sirui-cine
+    source_family: official_cine_news
+    domain: sirui.com
+    title: SIRUI Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:sirui.com cine lens announcement
+    topical_scopes: [cine, lenses, sirui, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: irix-cine
+    source_family: official_cine_news
+    domain: irixlens.com
+    title: Irix Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:irixlens.com cine lens announcement
+    topical_scopes: [cine, lenses, irix, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: leitz-cine
+    source_family: official_cine_news
+    domain: leitz-cine.com
+    title: Leitz Cine
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:leitz-cine.com cine lens announcement
+    topical_scopes: [cine, lenses, leitz, premium]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: canon-cinema-lens
+    source_family: official_cine_news
+    domain: usa.canon.com
+    title: Canon Cinema Lens
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:usa.canon.com cinema lens Canon announcement
+    topical_scopes: [cine, lenses, canon, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: fujinon-cine-broadcast
+    source_family: official_cine_news
+    domain: fujifilm.com
+    title: Fujinon Cine/Broadcast
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:fujifilm.com cine broadcast lens Fujinon announcement
+    topical_scopes: [cine, lenses, broadcast, fujinon]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: sony-cinema-lens
+    source_family: official_cine_news
+    domain: sony.com
+    title: Sony Cinema Lens
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:sony.com cinema lens Sony announcement
+    topical_scopes: [cine, lenses, sony, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: panasonic-leica-lmount-video
+    source_family: official_cine_news
+    domain: panasonic.com
+    title: Panasonic/Leica L-Mount Video
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:panasonic.com L-mount video Leica Panasonic announcement
+    topical_scopes: [cine, video, l-mount, panasonic]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: dulens
+    source_family: official_cine_news
+    domain: dulens.com
+    title: Dulens
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:dulens.com cine lens announcement
+    topical_scopes: [cine, lenses, dulens, production]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: blazar
+    source_family: official_cine_news
+    domain: blazarlens.com
+    title: Blazar
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:blazarlens.com anamorphic lens announcement
+    topical_scopes: [cine, lenses, anamorphic, blazar]
+    language: en
+    requires_primary_confirmation: false
+
+  - id: great-joy
+    source_family: official_cine_news
+    domain: greatjoylens.com
+    title: Great Joy
+    acquisition_mode: known_source_search
+    authority_tier: primary
+    search_hints:
+      - site:greatjoylens.com anamorphic lens announcement
+    topical_scopes: [cine, lenses, anamorphic, greatjoy]
+    language: en
+    requires_primary_confirmation: false

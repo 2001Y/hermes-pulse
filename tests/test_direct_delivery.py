@@ -22,8 +22,10 @@ NOTES_PATH = ROOT / "fixtures/notes/sample_notes.md"
 DEFAULT_CODEX_MODEL = "gpt-5.4"
 DEFAULT_SUMMARY_FORMAT = "briefing-v1"
 EXPECTED_TITLE = "☀ *Hermes Pulse Morning Briefing*"
+EXPECTED_EVENING_TITLE = "☾ *Hermes Pulse Evening Briefing*"
 EXPECTED_PRIMARY_HEADING = "▫ 主要トピック"
 EXPECTED_SCHEDULE_HEADING = "▫ 今日の予定・期限"
+EXPECTED_EVENING_SCHEDULE_HEADING = "▫ 明日の予定・期限"
 
 
 def _archived_item(source: str, item_id: str, title: str, url: str) -> CollectedItem:
@@ -236,12 +238,13 @@ def test_post_canonical_digest_to_slack_splits_oversized_digest_into_threaded_po
     digest_path = archive_directory / "summary" / "codex-digest.md"
     digest_path.parent.mkdir(parents=True, exist_ok=True)
     digest_path.write_text(
-        "# Codex Digest\n\n"
-        + "\n\n".join(
-            f"Paragraph {index}: [Link {index}](https://example.com/{index}) " + ("x" * 90)
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ 主要トピック\n"
+        + "\n".join(
+            f"- Item {index}: [Link {index}](https://example.com/{index}) " + ("x" * 70)
             for index in range(1, 7)
         )
-        + "\n"
+        + "\n\n▫ 今日の予定・期限\n- なし\n"
     )
     calls: list[dict[str, object]] = []
 
@@ -277,13 +280,36 @@ def test_post_canonical_digest_to_slack_splits_oversized_digest_into_threaded_po
     assert calls[0]["thread_ts"] is None
     assert calls[1]["thread_ts"] == "1712345.671"
     assert all("[Link" not in call["text"] for call in calls)
-    assert all("<https://example.com/" in call["text"] for call in calls)
+    assert all("<https://example.com/" in call["text"] or "- なし" in call["text"] for call in calls)
+    assert all("xxxxxxxxxx" in call["text"] or "- なし" in call["text"] or "☀ *Hermes Pulse Morning Briefing*" in call["text"] for call in calls)
     assert result.slack_response == {"ok": True, "channel": "C123", "ts": f"1712345.67{len(calls)}"}
     assert result.slack_responses == [
         {"ok": True, "channel": "C123", "ts": f"1712345.67{index}"}
         for index in range(1, len(calls) + 1)
     ]
     assert result.posted_messages == [call["text"] for call in calls]
+    joined = "\n".join(call["text"] for call in calls)
+    for index in range(1, 7):
+        expected_line = f"- Item {index}: <https://example.com/{index}|Link {index}> " + ("x" * 70)
+        assert expected_line in joined
+
+
+def test_split_slack_text_prefers_list_item_boundaries_over_mid_item_splits() -> None:
+    text = (
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ 主要トピック\n"
+        "- Item 1: " + ("a" * 60) + "\n"
+        "- Item 2: " + ("b" * 60) + "\n"
+        "- Item 3: " + ("c" * 60) + "\n"
+    )
+
+    chunks = direct_delivery._split_slack_text(text, limit=120)
+
+    assert len(chunks) >= 2
+    assert all("\n- Item 2: " not in chunk[-20:] for chunk in chunks[:-1])
+    assert all("\n- Item 3: " not in chunk[-20:] for chunk in chunks[:-1])
+    assert any(chunk.startswith("- Item 2:") for chunk in chunks[1:])
+    assert any(chunk.startswith("- Item 3:") for chunk in chunks[1:])
 
 
 def test_build_parser_uses_hermes_pulse_direct_delivery_program_name() -> None:
@@ -365,7 +391,7 @@ def test_post_canonical_digest_to_slack_fails_clearly_when_canonical_artifact_is
         )
 
 
-def test_run_morning_digest_direct_delivery_posts_partial_summaries_as_thread_replies(
+def test_run_morning_digest_direct_delivery_posts_only_combined_summary_when_partials_exist(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -428,12 +454,62 @@ def test_run_morning_digest_direct_delivery_posts_partial_summaries_as_thread_re
         == 0
     )
 
-    assert [call["text"] for call in posted] == [
-        "# Part 1\n\n- First\n",
-        "# Part 2\n\n- Second\n",
-    ]
+    assert [call["text"] for call in posted] == ["# Combined\n"]
     assert posted[0]["thread_ts"] is None
-    assert posted[1]["thread_ts"] == "1712345.671"
+
+
+def test_post_canonical_digest_to_slack_splits_only_combined_summary_when_partials_exist(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(
+        "# Combined Digest\n\n"
+        + "\n\n".join(
+            f"Combined paragraph {index}: [Link {index}](https://example.com/{index}) " + ("y" * 90)
+            for index in range(1, 7)
+        )
+        + "\n"
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_post_message(
+        text: str,
+        channel: str,
+        thread_ts: str | None = None,
+        *,
+        unfurl_links: bool = False,
+        unfurl_media: bool = False,
+        blocks: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        calls.append({
+            "text": text,
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "unfurl_links": unfurl_links,
+            "unfurl_media": unfurl_media,
+            "blocks": blocks,
+        })
+        return {"ok": True, "channel": channel, "ts": f"1712345.67{len(calls)}"}
+
+    result = direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=fake_post_message,
+        slack_message_limit=180,
+        summary_artifact=SummaryArtifact(
+            path=digest_path,
+            content=digest_path.read_text(),
+            partial_contents=["# Part 1\n\n- First\n", "# Part 2\n\n- Second\n"],
+        ),
+    )
+
+    assert len(calls) >= 2
+    assert calls[0]["thread_ts"] is None
+    assert calls[1]["thread_ts"] == "1712345.671"
+    assert all("Part 1" not in call["text"] for call in calls)
+    assert all("Part 2" not in call["text"] for call in calls)
+    assert all("Combined" in call["text"] for call in calls)
+    assert result.posted_messages == [call["text"] for call in calls]
 
 
 def test_main_runs_morning_digest_pipeline_and_posts_exact_canonical_digest(
@@ -534,9 +610,11 @@ def test_main_runs_morning_digest_pipeline_and_posts_exact_canonical_digest(
     ]
 
 
-def test_build_parser_accepts_codex_model_and_summary_format() -> None:
+def test_build_parser_accepts_digest_command_codex_model_and_summary_format() -> None:
     args = direct_delivery.build_parser().parse_args(
         [
+            "--command",
+            "evening-digest",
             "--channel",
             "D123",
             "--codex-model",
@@ -546,10 +624,59 @@ def test_build_parser_accepts_codex_model_and_summary_format() -> None:
         ]
     )
 
+    assert args.command == "evening-digest"
     assert args.codex_model == DEFAULT_CODEX_MODEL
     assert args.summary_format == DEFAULT_SUMMARY_FORMAT
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--chatgpt-history", str(CHATGPT_HISTORY_PATH)]).chatgpt_history == CHATGPT_HISTORY_PATH
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--grok-history", str(GROK_HISTORY_PATH)]).grok_history == GROK_HISTORY_PATH
+
+
+def test_run_digest_direct_delivery_uses_requested_digest_command(monkeypatch, tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive-root"
+    requested_commands: list[str] = []
+    occurred_at_commands: list[str] = []
+    summarized_archives: list[Path] = []
+
+    def fake_build_digest_with_source_errors(command: str, _args: object):
+        requested_commands.append(command)
+        return ([_archived_item("digest-source", "item-1", f"{command} item", "https://example.com/item-1")], {}, ["digest-source"])
+
+    def fake_occurred_at_for_command(command: str, _args: object) -> str:
+        occurred_at_commands.append(command)
+        return "2026-04-21T18:00:00Z"
+
+    def fake_summarize(archive_directory: Path, **_kwargs) -> SummaryArtifact:
+        archive_directory = Path(archive_directory)
+        summarized_archives.append(archive_directory)
+        digest_path = archive_directory / "summary" / "codex-digest.md"
+        digest_path.parent.mkdir(parents=True, exist_ok=True)
+        digest_path.write_text("# Evening\n\n- Item\n")
+        return SummaryArtifact(path=digest_path, content="# Evening\n\n- Item\n")
+
+    monkeypatch.setattr(direct_delivery, "_build_digest_with_source_errors", fake_build_digest_with_source_errors)
+    monkeypatch.setattr(direct_delivery, "_occurred_at_for_command", fake_occurred_at_for_command)
+    monkeypatch.setattr(direct_delivery, "_summarize_archive_with_retries", fake_summarize)
+
+    args = direct_delivery.build_parser().parse_args(
+        [
+            "--command",
+            "evening-digest",
+            "--archive-root",
+            str(archive_root),
+            "--channel",
+            "C123",
+        ]
+    )
+
+    result = direct_delivery.run_digest_direct_delivery(
+        args,
+        post_message=lambda text, channel, thread_ts=None, **kwargs: {"ok": True, "text": text, "channel": channel, "thread_ts": thread_ts, "blocks": kwargs.get("blocks"), "ts": "1712345.6789"},
+    )
+
+    assert requested_commands == ["evening-digest"]
+    assert occurred_at_commands == ["evening-digest"]
+    assert summarized_archives == [archive_root / date.today().isoformat()]
+    assert result.archive_directory == archive_root / date.today().isoformat()
 
 
 def test_briefing_v1_summary_format_instructions_define_requested_headings() -> None:
@@ -560,6 +687,15 @@ def test_briefing_v1_summary_format_instructions_define_requested_headings() -> 
     assert EXPECTED_SCHEDULE_HEADING in instructions[1]
     assert "気になるメモ" not in "\n".join(instructions)
     assert "internal source 名に引きずられず" in "\n".join(instructions)
+
+
+def test_briefing_v1_evening_summary_format_instructions_define_requested_headings() -> None:
+    instructions = direct_delivery.build_summary_format_instructions(DEFAULT_SUMMARY_FORMAT, digest_command="evening-digest")
+
+    assert EXPECTED_EVENING_TITLE in instructions[1]
+    assert EXPECTED_PRIMARY_HEADING in instructions[1]
+    assert EXPECTED_EVENING_SCHEDULE_HEADING in instructions[1]
+    assert EXPECTED_TITLE not in instructions[1]
 
 
 def test_summarize_archive_with_retries_uses_requested_model_and_format() -> None:
@@ -581,6 +717,30 @@ def test_summarize_archive_with_retries_uses_requested_model_and_format() -> Non
 
     assert artifact.content == "# digest"
     assert calls == [{"archive_directory": "/tmp/archive"}]
+
+
+def test_summarize_archive_with_retries_supports_legacy_summarizer_factories_without_digest_command() -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    class LegacySummarizer:
+        def __init__(self, *, model: str, summary_format: str) -> None:
+            captured_kwargs.append({"model": model, "summary_format": summary_format})
+
+        def summarize_archive(self, archive_directory: str | Path) -> SummaryArtifact:
+            return SummaryArtifact(path=Path("/tmp/codex-digest.md"), content="# ok")
+
+    artifact = direct_delivery._summarize_archive_with_retries(
+        Path("/tmp/archive"),
+        codex_model=DEFAULT_CODEX_MODEL,
+        summary_format=DEFAULT_SUMMARY_FORMAT,
+        digest_command="evening-digest",
+        retry_delays_seconds=(),
+        summarizer_factory=LegacySummarizer,
+        sleep=lambda _seconds: None,
+    )
+
+    assert artifact.content == "# ok"
+    assert captured_kwargs == [{"model": DEFAULT_CODEX_MODEL, "summary_format": DEFAULT_SUMMARY_FORMAT}]
 
 
 def test_summarize_archive_with_retries_retries_twice_after_failures() -> None:

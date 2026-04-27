@@ -8,7 +8,8 @@ from hermes_pulse.connectors.feed_registry import FeedRegistryConnector
 from hermes_pulse.connectors.hermes_history import HermesHistoryConnector
 from hermes_pulse.connectors.known_source_search import KnownSourceSearchConnector
 from hermes_pulse.connectors.notes import NotesConnector
-from hermes_pulse.models import TriggerEvent, TriggerScope
+from hermes_pulse.archive import write_morning_digest_archive
+from hermes_pulse.models import CollectedItem, ItemTimestamps, Provenance, TriggerEvent, TriggerScope
 from hermes_pulse.source_registry import load_source_registry
 from hermes_pulse.summarization.base import SummaryArtifact
 from hermes_pulse.synthesis import synthesize_candidates
@@ -47,6 +48,25 @@ class BoundConnector:
 
     def collect(self):
         return self._collector()
+
+
+def _archived_item(source: str, item_id: str, title: str, url: str) -> CollectedItem:
+    return CollectedItem(
+        id=f"{source}:{item_id}",
+        source=source,
+        source_kind="document",
+        title=title,
+        excerpt=f"Excerpt for {title}",
+        url=url,
+        timestamps=ItemTimestamps(created_at="2026-04-21T08:00:00Z", updated_at="2026-04-21T08:00:00Z"),
+        provenance=Provenance(
+            provider="example.com",
+            acquisition_mode="rss_poll",
+            authority_tier="primary",
+            primary_source_url=url,
+            raw_record_id=item_id,
+        ),
+    )
 
 
 def test_end_to_end_scheduled_morning_digest_runs_against_fixtures(monkeypatch, tmp_path: Path) -> None:
@@ -214,3 +234,58 @@ def test_morning_digest_continues_when_x_signals_fail(monkeypatch, tmp_path: Pat
     markdown = output_path.read_text()
     assert "Launch update" in markdown
     assert "Morning planning" not in markdown
+
+
+def test_morning_digest_can_replay_a_week_window_from_source_ledgers(monkeypatch, tmp_path: Path) -> None:
+    codex_calls = _install_stub_codex_summarizer(monkeypatch)
+    archive_root = tmp_path / "pulse-archive"
+    output_path = tmp_path / "deliveries" / "weekly-digest.md"
+
+    write_morning_digest_archive(
+        items=[_archived_item("weekly-source", "carryover", "Weekly carryover", "https://example.com/weekly-carryover")],
+        archive_root=archive_root,
+        archive_date="2026-04-21",
+        retrieved_at="2026-04-21T08:00:00Z",
+    )
+
+    assert (
+        hermes_pulse.cli.main(
+            [
+                "morning-digest",
+                "--source-registry",
+                str(SOURCE_REGISTRY_PATH),
+                "--feed-fixture",
+                str(FEED_FIXTURE_PATH),
+                "--search-fixture",
+                str(SEARCH_FIXTURE_PATH),
+                "--hermes-history",
+                str(HERMES_HISTORY_PATH),
+                "--notes",
+                str(NOTES_PATH),
+                "--archive-root",
+                str(archive_root),
+                "--archive-label",
+                "2026-week-17",
+                "--window-start",
+                "2026-04-21",
+                "--window-end",
+                "2026-04-24",
+                "--now",
+                "2026-04-23T08:00:00Z",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+
+    summary_path = archive_root / "2026-week-17" / "summary" / "codex-digest.md"
+    raw_items_path = archive_root / "2026-week-17" / "raw" / "collected-items.json"
+    raw_items = json.loads(raw_items_path.read_text())
+    markdown = output_path.read_text()
+
+    assert summary_path.read_text() == markdown
+    assert {item["title"] for item in raw_items} >= {"Weekly carryover", "Launch update"}
+    assert "Weekly carryover" in markdown
+    assert "Launch update" in markdown
+    assert codex_calls[0]["archive_directory"].name == "2026-week-17"

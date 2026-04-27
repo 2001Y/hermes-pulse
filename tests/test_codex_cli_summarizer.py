@@ -50,6 +50,7 @@ def test_build_summary_format_instructions_requires_inline_markdown_links_in_bri
 
     assert any("文中" in line and "Markdown リンク" in line for line in instructions)
     assert any("URL を文末に列挙しない" in line for line in instructions)
+    assert any("1 項目を複数行に分けない" in line for line in instructions)
 
 
 def test_build_summary_format_instructions_does_not_limit_primary_topics_to_fixed_small_range() -> None:
@@ -313,3 +314,52 @@ def test_build_codex_merge_prompt_requests_light_compression_only() -> None:
     assert "ほぼそのまま維持" in prompt
     assert "明らかに関連する項目だけを軽く統合" in prompt
     assert "項目数を不必要に減らさない" in prompt
+    assert "同じサービス・製品・AIモデルに関する話題は、会社・組織単位より優先してサービスごとにまとまりを意識して整理してください" in prompt
+    assert "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください" in prompt
+    assert "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください" in prompt
+    assert "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください" in prompt
+
+
+def test_build_codex_merge_prompt_supports_evening_digest_headings() -> None:
+    prompt = build_codex_merge_prompt(
+        [
+            "☾ *Hermes Pulse Evening Briefing*\n\n▫ 主要トピック\n- A\n\n▫ 明日の予定・期限\n- なし",
+            "☾ *Hermes Pulse Evening Briefing*\n\n▫ 主要トピック\n- B\n\n▫ 明日の予定・期限\n- なし",
+        ],
+        digest_command="evening-digest",
+    )
+
+    assert "☾ *Hermes Pulse Evening Briefing*" in prompt
+    assert "▫ 明日の予定・期限" in prompt
+    assert "☀ *Hermes Pulse Morning Briefing*" not in prompt
+
+
+def test_build_codex_digest_prompt_requests_company_grouping_and_excludes_entertainment(tmp_path: Path) -> None:
+    archive_directory = tmp_path / "2026-04-25"
+    raw_directory = archive_directory / "raw"
+    raw_directory.mkdir(parents=True)
+    raw_items = json.dumps(
+        [
+            {
+                "id": "company-1",
+                "title": "OpenAI ships enterprise feature",
+                "excerpt": "OpenAI released a new business feature",
+                "url": "https://example.com/openai-enterprise",
+            },
+            {
+                "id": "ent-1",
+                "title": "Movie trailer announced",
+                "excerpt": "Entertainment only update",
+                "url": "https://example.com/movie-trailer",
+            },
+        ],
+        ensure_ascii=False,
+    )
+    (raw_directory / "collected-items.json").write_text(raw_items)
+
+    prompt = build_codex_digest_prompt(archive_directory, raw_items)
+
+    assert "同じサービス・製品・AIモデルに関する話題は、会社・組織単位より優先してサービスごとにまとまりを意識して整理してください" in prompt
+    assert "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください" in prompt
+    assert "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください" in prompt
+    assert "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください" in prompt

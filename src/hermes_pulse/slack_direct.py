@@ -18,6 +18,7 @@ class SlackPoster(Protocol):
         *,
         unfurl_links: bool = False,
         unfurl_media: bool = False,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> Any:
         ...
 
@@ -57,7 +58,7 @@ def post_input_file_to_slack(
     input_path = Path(input_file)
     text = input_path.read_text()
     poster = post_message or load_slack_direct_post_message()
-    return poster(text, channel, thread_ts=thread_ts, unfurl_links=False, unfurl_media=False)
+    return poster(text, channel, thread_ts=thread_ts, unfurl_links=False, unfurl_media=False, blocks=None)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
