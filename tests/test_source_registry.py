@@ -138,3 +138,18 @@ def test_launcher_source_registry_reuses_default_registry_entries_via_include() 
     default_entry = default_entries["aapl-ch"]
 
     assert launcher_entry == default_entry
+
+
+def test_launcher_source_registry_prefers_direct_feeds_or_sitemaps_for_cine_sources_that_triggered_403s() -> None:
+    entries = {entry.id: entry for entry in load_source_registry(LAUNCHER_FIXTURE_PATH)}
+
+    assert entries["cined"].acquisition_mode == "rss_poll"
+    assert entries["cined"].rss_url == "https://www.cined.com/feed/"
+    assert entries["newsshooter"].acquisition_mode == "rss_poll"
+    assert entries["newsshooter"].rss_url == "https://www.newsshooter.com/feed/"
+    assert entries["provideo-coalition"].acquisition_mode == "rss_poll"
+    assert entries["provideo-coalition"].rss_url == "https://www.provideocoalition.com/feed/"
+    assert entries["zeiss-cine"].acquisition_mode == "rss_poll"
+    assert entries["zeiss-cine"].rss_url == "https://www.zeiss.com/sitemap.xml"
+    assert entries["viltrox-cine"].acquisition_mode == "rss_poll"
+    assert entries["viltrox-cine"].rss_url == "https://viltrox.com/sitemap.xml"

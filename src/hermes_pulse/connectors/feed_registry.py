@@ -39,7 +39,7 @@ class FeedRegistryConnector:
                 continue
             try:
                 payload = self._fetcher(entry.rss_url)
-                items.extend(self._parse_items(entry, payload))
+                items.extend(self._parse_items(entry, payload, source_url=entry.rss_url, visited_urls={entry.rss_url}))
                 if self._success_handler is not None:
                     self._success_handler(entry.id)
             except Exception as exc:
@@ -48,8 +48,17 @@ class FeedRegistryConnector:
                     self._error_handler(entry.id, str(exc))
         return items
 
-    def _parse_items(self, entry: SourceRegistryEntry, payload: str) -> list[CollectedItem]:
+    def _parse_items(
+        self,
+        entry: SourceRegistryEntry,
+        payload: str,
+        *,
+        source_url: str,
+        visited_urls: set[str],
+    ) -> list[CollectedItem]:
         root = ElementTree.fromstring(payload)
+        if _local_name(root.tag) in {"urlset", "sitemapindex"}:
+            return self._parse_sitemap_items(entry, root, source_url=source_url, visited_urls=visited_urls)
         parsed_items: list[CollectedItem] = []
         for raw_item in _iter_feed_items(root):
             title = _text(raw_item, "title")
@@ -76,6 +85,55 @@ class FeedRegistryConnector:
                         raw_record_id=guid,
                     ),
                     citation_chain=[CitationLink(label=title or entry.title, url=url or entry.rss_url, relation=relation)],
+                )
+            )
+        return parsed_items
+
+    def _parse_sitemap_items(
+        self,
+        entry: SourceRegistryEntry,
+        root: ElementTree.Element,
+        *,
+        source_url: str,
+        visited_urls: set[str],
+    ) -> list[CollectedItem]:
+        root_name = _local_name(root.tag)
+        if root_name == "sitemapindex":
+            nested_items: list[CollectedItem] = []
+            for sitemap in _children(root, "sitemap"):
+                nested_url = _text(sitemap, "loc")
+                if not nested_url or nested_url in visited_urls:
+                    continue
+                visited_urls.add(nested_url)
+                payload = self._fetcher(nested_url)
+                nested_items.extend(
+                    self._parse_items(entry, payload, source_url=nested_url, visited_urls=visited_urls)
+                )
+            return nested_items
+
+        relation = "primary" if entry.authority_tier == "primary" else "secondary"
+        parsed_items: list[CollectedItem] = []
+        for index, url_node in enumerate(_children(root, "url"), start=1):
+            url = _text(url_node, "loc")
+            if not url or not _url_matches_domain(url, entry.domain):
+                continue
+            title = _title_from_url(url)
+            parsed_items.append(
+                CollectedItem(
+                    id=f"{entry.id}:{url}",
+                    source=entry.id,
+                    source_kind="document",
+                    title=title,
+                    url=url,
+                    provenance=Provenance(
+                        provider=entry.domain,
+                        acquisition_mode=entry.acquisition_mode,
+                        authority_tier=entry.authority_tier,
+                        primary_source_url=url,
+                        raw_record_id=url,
+                    ),
+                    citation_chain=[CitationLink(label=title or entry.title, url=url, relation=relation)],
+                    metadata={"sitemap_source_url": source_url, "search_rank": index},
                 )
             )
         return parsed_items
@@ -174,6 +232,24 @@ def _item_link(element: ElementTree.Element) -> str | None:
     if node.text is None:
         return None
     return node.text.strip()
+
+
+def _url_matches_domain(url: str, domain: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = urlparse(url).hostname
+    if host is None:
+        return False
+    normalized_host = host.lower()
+    normalized_domain = domain.lower()
+    return normalized_host == normalized_domain or normalized_host.endswith(f".{normalized_domain}")
+
+
+def _title_from_url(url: str) -> str:
+    slug = url.rstrip('/').split('/')[-1].replace('-', ' ').replace('_', ' ')
+    if not slug:
+        return url
+    return slug[:1].upper() + slug[1:]
 
 
 def _local_name(tag: str) -> str:

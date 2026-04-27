@@ -35,6 +35,13 @@ APPLE_NEWSROOM_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
   </entry>
 </feed>
 """
+SITEMAP_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.zeiss.com/news/launch-update</loc></url>
+  <url><loc>https://www.zeiss.com/news/camera-two</loc></url>
+  <url><loc>https://other.example.net/ignored</loc></url>
+</urlset>
+"""
 
 
 def test_feed_registry_connector_collects_feed_items_with_provenance() -> None:
@@ -108,6 +115,29 @@ def test_feed_registry_connector_collects_atom_entries_with_link_href_and_update
     assert item.excerpt == "Important newsroom update."
     assert item.timestamps is not None
     assert item.timestamps.created_at == "2026-04-20T17:00:00Z"
+
+
+def test_feed_registry_connector_collects_sitemap_urls_as_document_items() -> None:
+    entry = SourceRegistryEntry(
+        id="zeiss-cine",
+        source_family="official_cine_news",
+        domain="zeiss.com",
+        title="ZEISS Cine",
+        acquisition_mode="rss_poll",
+        authority_tier="primary",
+        rss_url="https://www.zeiss.com/sitemap.xml",
+    )
+
+    items = FeedRegistryConnector(fetcher=lambda url: SITEMAP_XML).collect([entry])
+
+    assert [item.url for item in items] == [
+        "https://www.zeiss.com/news/launch-update",
+        "https://www.zeiss.com/news/camera-two",
+    ]
+    assert [item.source_kind for item in items] == ["document", "document"]
+    assert items[0].title == "Launch update"
+    assert items[0].provenance is not None
+    assert items[0].provenance.acquisition_mode == "rss_poll"
 
 
 def test_feed_registry_connector_enriches_body_from_article_page_when_available() -> None:

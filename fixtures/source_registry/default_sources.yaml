@@ -741,8 +741,9 @@ sources:
     source_family: official_cine_news
     domain: zeiss.com
     title: ZEISS Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.zeiss.com/sitemap.xml
     search_hints:
       - site:zeiss.com cine lens supreme radiance nano announcement
     topical_scopes: [cine, lenses, zeiss, premium]
@@ -765,8 +766,9 @@ sources:
     source_family: official_cine_news
     domain: dzofilm.com
     title: DZOFilm
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://dzofilm.com/sitemap.xml
     search_hints:
       - site:dzofilm.com cine lens camera announcement
     topical_scopes: [cine, lenses, dzofilm, production]
@@ -789,8 +791,9 @@ sources:
     source_family: official_cine_news
     domain: viltrox.com
     title: Viltrox Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://viltrox.com/sitemap.xml
     search_hints:
       - site:viltrox.com cine lens announcement
     topical_scopes: [cine, lenses, viltrox, production]
@@ -801,8 +804,9 @@ sources:
     source_family: specialist_cine_media
     domain: cined.com
     title: CineD
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.cined.com/feed/
     search_hints:
       - site:cined.com cinema camera lens review test
     topical_scopes: [cine, reviews, cameras, lenses]
@@ -813,8 +817,9 @@ sources:
     source_family: specialist_cine_media
     domain: nofilmschool.com
     title: No Film School
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://nofilmschool.com/feeds/content-types/article.rss
     search_hints:
       - site:nofilmschool.com cinema camera filmmaking lens news
     topical_scopes: [cine, filmmaking, industry, production]
@@ -825,8 +830,9 @@ sources:
     source_family: specialist_cine_media
     domain: newsshooter.com
     title: Newsshooter
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.newsshooter.com/feed/
     search_hints:
       - site:newsshooter.com cinema camera lens review production
     topical_scopes: [cine, reviews, production, cameras]
@@ -837,8 +843,9 @@ sources:
     source_family: specialist_cine_media
     domain: provideocoalition.com
     title: ProVideo Coalition
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.provideocoalition.com/feed/
     search_hints:
       - site:provideocoalition.com cinema camera lens post production news
     topical_scopes: [cine, post-production, industry, cameras]
@@ -849,8 +856,9 @@ sources:
     source_family: specialist_cine_media
     domain: frame.io
     title: Frame.io Insider
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://frame.io/sitemap.xml
     search_hints:
       - site:frame.io/blog filmmaking camera post production insider
     topical_scopes: [cine, post-production, workflow, cameras]
@@ -873,8 +881,9 @@ sources:
     source_family: specialist_cine_media
     domain: redsharknews.com
     title: RedShark News
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.redsharknews.com/sitemap.xml
     search_hints:
       - site:redsharknews.com cinema camera lens production news
     topical_scopes: [cine, cameras, production, industry]
@@ -885,8 +894,9 @@ sources:
     source_family: specialist_cine_media
     domain: ymcinema.com
     title: Y.M.Cinema Magazine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://ymcinema.com/feed/
     search_hints:
       - site:ymcinema.com cinema camera lens production news
     topical_scopes: [cine, cameras, lenses, production]
@@ -909,8 +919,9 @@ sources:
     source_family: official_cine_news
     domain: atlaslensco.com
     title: Atlas Lens Co.
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://atlaslensco.com/sitemap.xml
     search_hints:
       - site:atlaslensco.com cine lens anamorphic announcement
     topical_scopes: [cine, lenses, anamorphic, production]
@@ -957,8 +968,9 @@ sources:
     source_family: official_cine_news
     domain: schneiderkreuznach.com
     title: Schneider Kreuznach Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://schneiderkreuznach.com/sitemap.xml
     search_hints:
       - site:schneiderkreuznach.com cine lens announcement
     topical_scopes: [cine, lenses, schneider, premium]
@@ -969,8 +981,9 @@ sources:
     source_family: official_camera_news
     domain: thypoch.com
     title: Thypoch
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://thypoch.com/sitemap.xml
     search_hints:
       - site:thypoch.com lens camera Simera announcement
     topical_scopes: [camera, lenses, thypoch, premium]
@@ -981,8 +994,9 @@ sources:
     source_family: official_cine_news
     domain: meikeglobal.com
     title: Meike Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://meikeglobal.com/sitemap.xml
     search_hints:
       - site:meikeglobal.com cine lens announcement
     topical_scopes: [cine, lenses, meike, production]
@@ -1005,8 +1019,9 @@ sources:
     source_family: official_cine_news
     domain: irixlens.com
     title: Irix Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://irixlens.com/feed/
     search_hints:
       - site:irixlens.com cine lens announcement
     topical_scopes: [cine, lenses, irix, production]
@@ -1017,8 +1032,9 @@ sources:
     source_family: official_cine_news
     domain: leitz-cine.com
     title: Leitz Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.leitz-cine.com/sitemap.xml
     search_hints:
       - site:leitz-cine.com cine lens announcement
     topical_scopes: [cine, lenses, leitz, premium]
@@ -1041,8 +1057,9 @@ sources:
     source_family: official_cine_news
     domain: fujifilm.com
     title: Fujinon Cine/Broadcast
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.fujinon.com/feed/
     search_hints:
       - site:fujifilm.com cine broadcast lens Fujinon announcement
     topical_scopes: [cine, lenses, broadcast, fujinon]
@@ -1065,8 +1082,9 @@ sources:
     source_family: official_cine_news
     domain: panasonic.com
     title: Panasonic/Leica L-Mount Video
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://na.panasonic.com/sitemap.xml
     search_hints:
       - site:panasonic.com L-mount video Leica Panasonic announcement
     topical_scopes: [cine, video, l-mount, panasonic]
@@ -1077,8 +1095,9 @@ sources:
     source_family: official_cine_news
     domain: dulens.com
     title: Dulens
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://dulens.com/feed/
     search_hints:
       - site:dulens.com cine lens announcement
     topical_scopes: [cine, lenses, dulens, production]
@@ -1089,8 +1108,9 @@ sources:
     source_family: official_cine_news
     domain: blazarlens.com
     title: Blazar
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://blazarlens.com/feed/
     search_hints:
       - site:blazarlens.com anamorphic lens announcement
     topical_scopes: [cine, lenses, anamorphic, blazar]
@@ -1101,8 +1121,9 @@ sources:
     source_family: official_cine_news
     domain: greatjoylens.com
     title: Great Joy
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://store.blazarlens.com/sitemap.xml
     search_hints:
       - site:greatjoylens.com anamorphic lens announcement
     topical_scopes: [cine, lenses, anamorphic, greatjoy]

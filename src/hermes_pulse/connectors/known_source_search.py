@@ -1,4 +1,5 @@
 import logging
+import urllib.error
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -16,6 +17,7 @@ DEFAULT_HEADERS = {
 }
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
+BING_RSS_ENDPOINT = "https://www.bing.com/search?format=rss"
 
 
 class KnownSourceSearchConnector:
@@ -43,8 +45,7 @@ class KnownSourceSearchConnector:
                 if direct_items is not None:
                     items.extend(direct_items)
                 else:
-                    payload = self._fetcher(_build_search_url(query))
-                    items.extend(self._parse_items(entry, payload, query))
+                    items.extend(_collect_search_items(entry, query=query, fetcher=self._fetcher))
                 if self._success_handler is not None:
                     self._success_handler(entry.id)
             except Exception as exc:
@@ -57,38 +58,7 @@ class KnownSourceSearchConnector:
         parser = _DuckDuckGoHTMLParser()
         parser.feed(payload)
         parser.close()
-        relation = "primary" if entry.authority_tier == "primary" else "secondary"
-        parsed_items: list[CollectedItem] = []
-        search_rank = 0
-        for result in parser.results:
-            resolved_url = _resolve_result_url(result.url)
-            if resolved_url is None or not _url_matches_domain(resolved_url, entry.domain):
-                continue
-            search_rank += 1
-            title = result.title or resolved_url
-            parsed_items.append(
-                CollectedItem(
-                    id=f"{entry.id}:{resolved_url}",
-                    source=entry.id,
-                    source_kind="document",
-                    title=title,
-                    excerpt=result.snippet,
-                    url=resolved_url,
-                    provenance=Provenance(
-                        provider=entry.domain,
-                        acquisition_mode=entry.acquisition_mode,
-                        authority_tier=entry.authority_tier,
-                        primary_source_url=resolved_url,
-                        raw_record_id=resolved_url,
-                    ),
-                    citation_chain=[CitationLink(label=title, url=resolved_url, relation=relation)],
-                    metadata={
-                        "search_query": query,
-                        "search_rank": search_rank,
-                    },
-                )
-            )
-        return parsed_items
+        return _build_result_items(entry, parser.results, query=query)
 
 
 @dataclass(slots=True)
@@ -168,10 +138,87 @@ def _build_search_url(query: str) -> str:
     return f"{SEARCH_ENDPOINT}?q={quote_plus(query)}"
 
 
+def _build_bing_rss_url(query: str) -> str:
+    return f"{BING_RSS_ENDPOINT}&q={quote_plus(query)}"
+
+
 def _fetch_url(url: str) -> str:
     request = Request(url, headers=DEFAULT_HEADERS)
     with urlopen(request) as response:
         return response.read().decode("utf-8")
+
+
+def _collect_search_items(
+    entry: SourceRegistryEntry,
+    *,
+    query: str,
+    fetcher: Callable[[str], str],
+) -> list[CollectedItem]:
+    try:
+        payload = fetcher(_build_search_url(query))
+        return _parse_duckduckgo_items(entry, payload, query)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        logger.info("DuckDuckGo HTML search returned 403 for %s; retrying via Bing RSS", entry.id)
+        payload = fetcher(_build_bing_rss_url(query))
+        return _parse_bing_rss_items(entry, payload, query)
+
+
+def _parse_duckduckgo_items(entry: SourceRegistryEntry, payload: str, query: str) -> list[CollectedItem]:
+    parser = _DuckDuckGoHTMLParser()
+    parser.feed(payload)
+    parser.close()
+    return _build_result_items(entry, parser.results, query=query)
+
+
+def _parse_bing_rss_items(entry: SourceRegistryEntry, payload: str, query: str) -> list[CollectedItem]:
+    root = ElementTree.fromstring(payload)
+    results: list[_SearchResult] = []
+    for item in root.findall('./channel/item'):
+        results.append(
+            _SearchResult(
+                title=(item.findtext('title') or '').strip() or None,
+                url=(item.findtext('link') or '').strip() or None,
+                snippet=(item.findtext('description') or '').strip() or None,
+            )
+        )
+    return _build_result_items(entry, results, query=query)
+
+
+def _build_result_items(entry: SourceRegistryEntry, results: Sequence[_SearchResult], *, query: str) -> list[CollectedItem]:
+    relation = "primary" if entry.authority_tier == "primary" else "secondary"
+    parsed_items: list[CollectedItem] = []
+    search_rank = 0
+    for result in results:
+        resolved_url = _resolve_result_url(result.url)
+        if resolved_url is None or not _url_matches_domain(resolved_url, entry.domain):
+            continue
+        search_rank += 1
+        title = result.title or resolved_url
+        parsed_items.append(
+            CollectedItem(
+                id=f"{entry.id}:{resolved_url}",
+                source=entry.id,
+                source_kind="document",
+                title=title,
+                excerpt=result.snippet,
+                url=resolved_url,
+                provenance=Provenance(
+                    provider=entry.domain,
+                    acquisition_mode=entry.acquisition_mode,
+                    authority_tier=entry.authority_tier,
+                    primary_source_url=resolved_url,
+                    raw_record_id=resolved_url,
+                ),
+                citation_chain=[CitationLink(label=title, url=resolved_url, relation=relation)],
+                metadata={
+                    "search_query": query,
+                    "search_rank": search_rank,
+                },
+            )
+        )
+    return parsed_items
 
 
 def _collect_direct_items(

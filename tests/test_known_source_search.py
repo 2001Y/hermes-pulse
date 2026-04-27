@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 
 from hermes_pulse.connectors.known_source_search import KnownSourceSearchConnector
@@ -17,6 +18,22 @@ XAI_NEWS_HTML = """<!doctype html><html><body>
 <a href='/news/grok-business'>Grok Business</a>
 <a href='/about'>About</a>
 </body></html>
+"""
+BING_RSS_XML = """<?xml version='1.0' encoding='utf-8'?>
+<rss version='2.0'>
+  <channel>
+    <item>
+      <title>Zeiss cine update</title>
+      <link>https://www.zeiss.com/cine-lenses/us/news-events/news/supreme-prime-radiance.html</link>
+      <description>ZEISS announces a cine lens update.</description>
+    </item>
+    <item>
+      <title>Ignored off-domain result</title>
+      <link>https://example.com/not-zeiss</link>
+      <description>Should be filtered out.</description>
+    </item>
+  </channel>
+</rss>
 """
 
 
@@ -256,3 +273,36 @@ def test_known_source_search_connector_reports_per_source_errors_to_callback() -
 
     assert items == []
     assert reported_errors == [("discovery-only-source", "search timed out")]
+
+
+def test_known_source_search_connector_falls_back_to_bing_rss_when_duckduckgo_returns_403() -> None:
+    requested_urls: list[str] = []
+
+    def fetcher(url: str) -> str:
+        requested_urls.append(url)
+        if url.startswith("https://html.duckduckgo.com/html/?q="):
+            raise HTTPError(url, 403, "Forbidden", hdrs=None, fp=None)
+        if url.startswith("https://www.bing.com/search?format=rss&q="):
+            return BING_RSS_XML
+        raise AssertionError(url)
+
+    entry = SourceRegistryEntry(
+        id="zeiss-cine",
+        source_family="official_cine_news",
+        domain="zeiss.com",
+        title="ZEISS Cine",
+        acquisition_mode="known_source_search",
+        authority_tier="primary",
+        search_hints=["site:zeiss.com cine lens supreme radiance nano announcement"],
+    )
+
+    items = KnownSourceSearchConnector(fetcher=fetcher).collect([entry])
+
+    assert requested_urls == [
+        "https://html.duckduckgo.com/html/?q=site%3Azeiss.com+cine+lens+supreme+radiance+nano+announcement",
+        "https://www.bing.com/search?format=rss&q=site%3Azeiss.com+cine+lens+supreme+radiance+nano+announcement",
+    ]
+    assert [item.url for item in items] == [
+        "https://www.zeiss.com/cine-lenses/us/news-events/news/supreme-prime-radiance.html"
+    ]
+    assert items[0].title == "Zeiss cine update"
