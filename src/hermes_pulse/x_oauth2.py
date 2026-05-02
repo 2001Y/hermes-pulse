@@ -1,4 +1,5 @@
 import base64
+import inspect
 import json
 import socket
 import subprocess
@@ -50,12 +51,11 @@ def refresh_x_oauth2_token(
         xurl_path=xurl_path,
         xurl_app_name=xurl_app_name,
     )
-    validate_runner = validate_runner or (lambda: _run_xurl_whoami_oauth2(credentials))
     refresh_runner = refresh_runner or _refresh_token_via_x_api
     interactive_reauth_runner = interactive_reauth_runner or (lambda: _run_xurl_interactive_reauth(credentials))
 
     if not force and _is_token_valid(credentials.expiration_time, min_valid_seconds=min_valid_seconds):
-        validate_runner()
+        _invoke_validate_runner(validate_runner, credentials)
         return {"status": "valid", "changed": False}
 
     try:
@@ -70,7 +70,7 @@ def refresh_x_oauth2_token(
             app_name=credentials.app_name,
         )
         _write_x_oauth2_credentials(shared_env_path=shared_env_path, xurl_path=xurl_path, credentials=updated)
-        validate_runner()
+        _invoke_validate_runner(validate_runner, updated)
         return {"status": "refreshed", "changed": True}
     except Exception as refresh_error:
         if not allow_interactive_reauth:
@@ -83,13 +83,20 @@ def refresh_x_oauth2_token(
         shared_env_path=shared_env_path,
         xurl_path=xurl_path,
         xurl_app_name=xurl_app_name,
+        prefer_env_tokens=False,
     )
     _write_shared_env_tokens(shared_env_path, updated)
-    validate_runner()
+    _invoke_validate_runner(validate_runner, updated)
     return {"status": "interactive_reauth", "changed": True}
 
 
-def load_x_oauth2_credentials(*, shared_env_path: Path, xurl_path: Path, xurl_app_name: str | None = None) -> XOAuth2Credentials:
+def load_x_oauth2_credentials(
+    *,
+    shared_env_path: Path,
+    xurl_path: Path,
+    xurl_app_name: str | None = None,
+    prefer_env_tokens: bool = True,
+) -> XOAuth2Credentials:
     env = _load_exported_env(shared_env_path)
     xurl_payload = _load_xurl_payload(xurl_path)
     app_name = xurl_app_name or xurl_payload.get("default_app") or DEFAULT_XURL_APP_NAME
@@ -100,9 +107,47 @@ def load_x_oauth2_credentials(*, shared_env_path: Path, xurl_path: Path, xurl_ap
     token_payload = (((app.get("oauth2_tokens") or {}).get(username) or {}).get("oauth2") or {})
     client_id = env.get("X_CLIENT_ID") or app.get("client_id")
     client_secret = env.get("X_CLIENT_SECRET") or app.get("client_secret")
-    access_token = token_payload.get("access_token") or env.get("X_OAUTH2_ACCESS_TOKEN")
-    refresh_token = token_payload.get("refresh_token") or env.get("X_OAUTH2_REFRESH_TOKEN")
-    expiration_time = token_payload.get("expiration_time") or env.get("X_OAUTH2_EXPIRATION_TIME") or 0
+    env_access_token = env.get("X_OAUTH2_ACCESS_TOKEN")
+    env_refresh_token = env.get("X_OAUTH2_REFRESH_TOKEN")
+    env_expiration_time = int(env.get("X_OAUTH2_EXPIRATION_TIME") or 0)
+    xurl_access_token = token_payload.get("access_token")
+    xurl_refresh_token = token_payload.get("refresh_token")
+    xurl_expiration_time = int(token_payload.get("expiration_time") or 0)
+    if prefer_env_tokens:
+        env_complete = bool(env_access_token and env_refresh_token)
+        xurl_complete = bool(xurl_access_token and xurl_refresh_token)
+        if env_complete and xurl_complete:
+            if env_expiration_time >= xurl_expiration_time:
+                access_token = env_access_token
+                refresh_token = env_refresh_token
+                expiration_time = env_expiration_time
+            else:
+                access_token = xurl_access_token
+                refresh_token = xurl_refresh_token
+                expiration_time = xurl_expiration_time
+        elif env_complete:
+            access_token = env_access_token
+            refresh_token = env_refresh_token
+            expiration_time = env_expiration_time
+        else:
+            access_token = xurl_access_token or env_access_token
+            refresh_token = xurl_refresh_token or env_refresh_token
+            expiration_time = xurl_expiration_time or env_expiration_time
+    else:
+        xurl_complete = bool(xurl_access_token and xurl_refresh_token)
+        env_complete = bool(env_access_token and env_refresh_token)
+        if xurl_complete:
+            access_token = xurl_access_token
+            refresh_token = xurl_refresh_token
+            expiration_time = xurl_expiration_time
+        elif env_complete:
+            access_token = env_access_token
+            refresh_token = env_refresh_token
+            expiration_time = env_expiration_time
+        else:
+            access_token = xurl_access_token or env_access_token
+            refresh_token = xurl_refresh_token or env_refresh_token
+            expiration_time = xurl_expiration_time or env_expiration_time
     if not client_id or not client_secret or not access_token or not refresh_token:
         raise ValueError("X OAuth2 credentials are incomplete")
     return XOAuth2Credentials(
@@ -118,6 +163,15 @@ def load_x_oauth2_credentials(*, shared_env_path: Path, xurl_path: Path, xurl_ap
 
 def _is_token_valid(expiration_time: int, *, min_valid_seconds: int) -> bool:
     return expiration_time > int(time.time()) + min_valid_seconds
+
+
+def _invoke_validate_runner(validate_runner, credentials: XOAuth2Credentials) -> str:
+    if validate_runner is None:
+        return _run_xurl_whoami_oauth2(credentials)
+    parameter_count = len(inspect.signature(validate_runner).parameters)
+    if parameter_count == 0:
+        return validate_runner()
+    return validate_runner(credentials)
 
 
 def _run_xurl_whoami_oauth2(credentials: XOAuth2Credentials) -> str:

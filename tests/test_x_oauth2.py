@@ -1,18 +1,25 @@
 from pathlib import Path
 
 import hermes_pulse.cli
-from hermes_pulse.x_oauth2 import X_OAUTH2_TOKEN_ENDPOINT, refresh_x_oauth2_token
+import hermes_pulse.x_oauth2
+from hermes_pulse.x_oauth2 import X_OAUTH2_TOKEN_ENDPOINT, load_x_oauth2_credentials, refresh_x_oauth2_token
 
 
-def _write_shared_env(path: Path, *, expiration_time: int = 0) -> None:
+def _write_shared_env(
+    path: Path,
+    *,
+    expiration_time: int = 0,
+    access_value: str = "env-access",
+    refresh_value: str = "env-refresh",
+) -> None:
     path.write_text(
         "\n".join(
             [
                 'export X_CLIENT_ID="client-id"',
                 'export X_CLIENT_SECRET="client-secret"',
                 'export X_OAUTH2_USERNAME="akita"',
-                'export X_OAUTH2_ACCESS_TOKEN="old-access"',
-                'export X_OAUTH2_REFRESH_TOKEN="old-refresh"',
+                f'export X_OAUTH2_ACCESS_TOKEN="{access_value}"',
+                f'export X_OAUTH2_REFRESH_TOKEN="{refresh_value}"',
                 f'export X_OAUTH2_EXPIRATION_TIME="{expiration_time}"',
             ]
         )
@@ -146,13 +153,92 @@ apps:
     assert result == {"status": "interactive_reauth", "changed": True}
     assert calls == ["interactive"]
     shared_env_text = shared_env.read_text()
-    assert 'export X_OAUTH2_ACCESS_TOKEN="interactive-access"' in shared_env_text
-    assert 'export X_OAUTH2_REFRESH_TOKEN="interactive-refresh"' in shared_env_text
+    assert 'export X_OAUTH2_ACCESS_TOKEN=' in shared_env_text
+    assert 'interactive-access' in shared_env_text
+    assert 'export X_OAUTH2_REFRESH_TOKEN=' in shared_env_text
+    assert 'interactive-refresh' in shared_env_text
+
+
+def test_load_x_oauth2_credentials_prefers_shared_env_tokens_when_env_is_fresher(tmp_path: Path) -> None:
+    shared_env = tmp_path / "shared.env"
+    xurl_path = tmp_path / ".xurl"
+    _write_shared_env(shared_env, expiration_time=4102444800)
+    _write_xurl(xurl_path, expiration_time=0)
+
+    credentials = load_x_oauth2_credentials(shared_env_path=shared_env, xurl_path=xurl_path)
+
+    assert credentials.access_token == "env-access"
+    assert credentials.refresh_token == "env-refresh"
+    assert credentials.expiration_time == 4102444800
+
+
+def test_load_x_oauth2_credentials_prefers_xurl_tokens_when_env_is_stale(tmp_path: Path) -> None:
+    shared_env = tmp_path / "shared.env"
+    xurl_path = tmp_path / ".xurl"
+    _write_shared_env(shared_env, expiration_time=0, access_value="env-stale-access", refresh_value="env-stale-refresh")
+    _write_xurl(xurl_path, expiration_time=4102444800)
+
+    credentials = load_x_oauth2_credentials(shared_env_path=shared_env, xurl_path=xurl_path)
+
+    assert credentials.access_token == "old-access"
+    assert credentials.refresh_token == "old-refresh"
+    assert credentials.expiration_time == 4102444800
+
+
+def test_load_x_oauth2_credentials_xurl_first_uses_complete_env_fallback_instead_of_hybrid(tmp_path: Path) -> None:
+    shared_env = tmp_path / "shared.env"
+    xurl_path = tmp_path / ".xurl"
+    _write_shared_env(shared_env, expiration_time=4102444800, access_value="env-good-access", refresh_value="env-good-refresh")
+    _write_xurl(xurl_path, expiration_time=4102444800)
+    xurl_path.write_text(xurl_path.read_text().replace("refresh_token: old-refresh", 'refresh_token: ""'))
+
+    credentials = load_x_oauth2_credentials(
+        shared_env_path=shared_env,
+        xurl_path=xurl_path,
+        prefer_env_tokens=False,
+    )
+
+    assert credentials.access_token == "env-good-access"
+    assert credentials.refresh_token == "env-good-refresh"
+    assert credentials.expiration_time == 4102444800
+
+
+def test_refresh_x_oauth2_token_validates_using_refreshed_credentials(monkeypatch, tmp_path: Path) -> None:
+    shared_env = tmp_path / "shared.env"
+    xurl_path = tmp_path / ".xurl"
+    _write_shared_env(shared_env, expiration_time=0, access_value="env-access", refresh_value="env-refresh")
+    _write_xurl(xurl_path, expiration_time=0)
+    xurl_path.write_text(
+        xurl_path.read_text()
+        .replace("access_token: old-access", "access_token: xurl-stale-access")
+        .replace("refresh_token: old-refresh", "refresh_token: xurl-stale-refresh")
+    )
+    validated_tokens: list[str] = []
+
+    monkeypatch.setattr(
+        hermes_pulse.x_oauth2,
+        "_run_xurl_whoami_oauth2",
+        lambda credentials: validated_tokens.append(credentials.access_token) or '{"data":{"id":"42"}}',
+    )
+
+    result = refresh_x_oauth2_token(
+        shared_env_path=shared_env,
+        xurl_path=xurl_path,
+        min_valid_seconds=300,
+        refresh_runner=lambda *_args, **_kwargs: {
+            "access_token": "refreshed-access",
+            "refresh_token": "refreshed-refresh",
+            "expires_in": 7200,
+        },
+    )
+
+    assert result["status"] == "refreshed"
+    assert validated_tokens == ["refreshed-access"]
 
 
 def test_cli_refresh_x_oauth2_command_delegates_to_helper(monkeypatch, tmp_path: Path) -> None:
     shared_env = tmp_path / "shared.env"
-    xurl_path = tmp_path / ".xurl"
+
     calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
