@@ -44,11 +44,11 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
     assert 'xurl auth apps update default --client-id "$X_CLIENT_ID" --client-secret "$X_CLIENT_SECRET"' in wrapper
     assert 'xurl auth default default' in wrapper
     assert 'xurl auth default default "$X_OAUTH2_USERNAME"' in wrapper
-    assert 'X_OAUTH2_ACCESS_TOKEN' in wrapper
-    assert 'X_OAUTH2_REFRESH_TOKEN' in wrapper
-    assert 'X_OAUTH2_EXPIRATION_TIME' in wrapper
-    assert 'oauth2_tokens' in wrapper
-    assert 'default_user' in wrapper
+    assert 'X_OAUTH2_ACCESS_TOKEN' not in wrapper
+    assert 'X_OAUTH2_REFRESH_TOKEN' not in wrapper
+    assert 'X_OAUTH2_EXPIRATION_TIME' not in wrapper
+    assert 'oauth2_tokens' not in wrapper
+    assert 'default_user' not in wrapper
     assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-x-oauth2 --shared-env-path /Users/akitani/.config/env/shared.env --xurl-app-name default --min-valid-seconds 900 >/dev/null 2>&1; then' in wrapper
     assert 'echo "warning: X OAuth2 refresh failed; digest will continue without X signals" >&2' in wrapper
     assert 'if ! /opt/homebrew/bin/python3 -m hermes_pulse.cli refresh-chatgpt-history --input-dir /Users/akitani/Downloads --output-dir /Users/akitani/Pulse/Imports/chatgpt >/dev/null 2>&1; then' in wrapper

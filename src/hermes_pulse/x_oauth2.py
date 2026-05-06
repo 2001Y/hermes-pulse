@@ -85,7 +85,7 @@ def refresh_x_oauth2_token(
         xurl_app_name=xurl_app_name,
         prefer_env_tokens=False,
     )
-    _write_shared_env_tokens(shared_env_path, updated)
+    _write_shared_env_app_config(shared_env_path, updated)
     _invoke_validate_runner(validate_runner, updated)
     return {"status": "interactive_reauth", "changed": True}
 
@@ -107,47 +107,9 @@ def load_x_oauth2_credentials(
     token_payload = (((app.get("oauth2_tokens") or {}).get(username) or {}).get("oauth2") or {})
     client_id = env.get("X_CLIENT_ID") or app.get("client_id")
     client_secret = env.get("X_CLIENT_SECRET") or app.get("client_secret")
-    env_access_token = env.get("X_OAUTH2_ACCESS_TOKEN")
-    env_refresh_token = env.get("X_OAUTH2_REFRESH_TOKEN")
-    env_expiration_time = int(env.get("X_OAUTH2_EXPIRATION_TIME") or 0)
-    xurl_access_token = token_payload.get("access_token")
-    xurl_refresh_token = token_payload.get("refresh_token")
-    xurl_expiration_time = int(token_payload.get("expiration_time") or 0)
-    if prefer_env_tokens:
-        env_complete = bool(env_access_token and env_refresh_token)
-        xurl_complete = bool(xurl_access_token and xurl_refresh_token)
-        if env_complete and xurl_complete:
-            if env_expiration_time >= xurl_expiration_time:
-                access_token = env_access_token
-                refresh_token = env_refresh_token
-                expiration_time = env_expiration_time
-            else:
-                access_token = xurl_access_token
-                refresh_token = xurl_refresh_token
-                expiration_time = xurl_expiration_time
-        elif env_complete:
-            access_token = env_access_token
-            refresh_token = env_refresh_token
-            expiration_time = env_expiration_time
-        else:
-            access_token = xurl_access_token or env_access_token
-            refresh_token = xurl_refresh_token or env_refresh_token
-            expiration_time = xurl_expiration_time or env_expiration_time
-    else:
-        xurl_complete = bool(xurl_access_token and xurl_refresh_token)
-        env_complete = bool(env_access_token and env_refresh_token)
-        if xurl_complete:
-            access_token = xurl_access_token
-            refresh_token = xurl_refresh_token
-            expiration_time = xurl_expiration_time
-        elif env_complete:
-            access_token = env_access_token
-            refresh_token = env_refresh_token
-            expiration_time = env_expiration_time
-        else:
-            access_token = xurl_access_token or env_access_token
-            refresh_token = xurl_refresh_token or env_refresh_token
-            expiration_time = xurl_expiration_time or env_expiration_time
+    access_token = token_payload.get("access_token")
+    refresh_token = token_payload.get("refresh_token")
+    expiration_time = int(token_payload.get("expiration_time") or 0)
     if not client_id or not client_secret or not access_token or not refresh_token:
         raise ValueError("X OAuth2 credentials are incomplete")
     return XOAuth2Credentials(
@@ -220,7 +182,7 @@ def _run_xurl_interactive_reauth(credentials: XOAuth2Credentials) -> None:
 
 
 def _write_x_oauth2_credentials(*, shared_env_path: Path, xurl_path: Path, credentials: XOAuth2Credentials) -> None:
-    _write_shared_env_tokens(shared_env_path, credentials)
+    _write_shared_env_app_config(shared_env_path, credentials)
     payload = _load_xurl_payload(xurl_path)
     apps = payload.setdefault("apps", {})
     app_name = credentials.app_name or payload.get("default_app") or DEFAULT_XURL_APP_NAME
@@ -240,14 +202,11 @@ def _write_x_oauth2_credentials(*, shared_env_path: Path, xurl_path: Path, crede
     xurl_path.write_text(yaml.safe_dump(payload, sort_keys=False))
 
 
-def _write_shared_env_tokens(shared_env_path: Path, credentials: XOAuth2Credentials) -> None:
+def _write_shared_env_app_config(shared_env_path: Path, credentials: XOAuth2Credentials) -> None:
     env = _load_exported_env(shared_env_path)
     env["X_CLIENT_ID"] = credentials.client_id
     env["X_CLIENT_SECRET"] = credentials.client_secret
     env["X_OAUTH2_USERNAME"] = credentials.username
-    env["X_OAUTH2_ACCESS_TOKEN"] = credentials.access_token
-    env["X_OAUTH2_REFRESH_TOKEN"] = credentials.refresh_token
-    env["X_OAUTH2_EXPIRATION_TIME"] = str(credentials.expiration_time)
     lines = shared_env_path.read_text().splitlines() if shared_env_path.exists() else []
     for key, value in env.items():
         replacement = f'export {key}="{value}"'
