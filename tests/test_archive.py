@@ -51,6 +51,41 @@ def test_write_morning_digest_archive_appends_per_source_ledger_and_writes_only_
     assert [entry["retrieved_at"] for entry in ledger_lines] == ["2026-04-23T08:00:00Z", "2026-04-24T08:00:00Z"]
 
 
+def test_write_morning_digest_archive_records_duplicate_source_urls_only_once_even_when_records_differ(tmp_path) -> None:
+    archive_root = tmp_path / "Pulse"
+    shared_url = "https://www.itmedia.co.jp/business/articles/2602/27/news096.html"
+
+    first_item = _item("x_likes", "2027277539262235108", shared_url)
+    second_item = _item("x_likes", "2027277544412905560", shared_url)
+    second_item.title = "Different liked post text for the same article"
+    archive_directory = write_morning_digest_archive(
+        items=[first_item, second_item],
+        archive_root=archive_root,
+        archive_date="2026-04-24",
+        retrieved_at="2026-04-24T08:00:00Z",
+    )
+
+    raw_items = json.loads((archive_directory / "raw" / "collected-items.json").read_text())
+    ledger_path = archive_root / "sources" / "x_likes.jsonl"
+    ledger_lines = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+
+    assert [item["id"] for item in raw_items] == ["x_likes:2027277539262235108"]
+    assert [entry["id"] for entry in ledger_lines] == ["x_likes:2027277539262235108"]
+
+    second_archive_directory = write_morning_digest_archive(
+        items=[first_item, second_item],
+        archive_root=archive_root,
+        archive_date="2026-04-25",
+        retrieved_at="2026-04-25T08:00:00Z",
+    )
+
+    second_raw_items = json.loads((second_archive_directory / "raw" / "collected-items.json").read_text())
+    second_ledger_lines = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+
+    assert second_raw_items == []
+    assert [entry["id"] for entry in second_ledger_lines] == ["x_likes:2027277539262235108"]
+
+
 def test_write_morning_digest_archive_skips_malformed_existing_ledger_lines(tmp_path) -> None:
     archive_root = tmp_path / "Pulse"
     ledger_path = archive_root / "sources" / "grok_history.jsonl"

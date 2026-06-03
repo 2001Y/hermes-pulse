@@ -97,7 +97,7 @@ def _append_source_ledgers(
         seen_fingerprints = existing_fingerprints_by_source.setdefault(item.source, _load_existing_fingerprints(ledger_path))
         identity = _item_identity(item)
         fingerprint = _item_fingerprint(item)
-        if seen_fingerprints.get(identity) == fingerprint:
+        if identity in seen_fingerprints:
             continue
         seen_fingerprints[identity] = fingerprint
         record = asdict(item)
