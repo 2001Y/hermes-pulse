@@ -10,16 +10,20 @@ only_ids:
   - xai-news
   - google-ai-blog
   - meta-ai-blog
+  - google-news-ai
   - xtech
   - itmedia-news
   - publickey
+  - google-news-it
   - nikkei-markets
   - bloomberg-japan
   - reuters-finance
+  - google-news-finance
   - tesla-news
   - electrek
   - insideevs
   - car-watch
+  - google-news-car
   - byd-global
   - hyundai-worldwide
   - kia-global
@@ -33,6 +37,7 @@ only_ids:
   - dpreview
   - petapixel
   - digital-camera-watch
+  - google-news-camera
   - canon-rumors
   - nikon-rumors
   - sonyalpha-rumors

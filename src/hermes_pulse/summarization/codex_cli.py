@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+from hermes_pulse.categories import category_label, group_raw_items_by_category
 from hermes_pulse.summarization.base import (
     CODEX_DIGEST_RELATIVE_PATH,
     RAW_ITEMS_RELATIVE_PATH,
@@ -17,6 +18,11 @@ DEFAULT_CODEX_TIMEOUT_SECONDS = 900
 DEFAULT_CODEX_MODEL = "gpt-5.4"
 DEFAULT_SUMMARY_FORMAT = "briefing-v1"
 MAX_PROMPT_RAW_ITEMS = 50
+HEADLINE_STYLE_INSTRUCTION = (
+    "各箇条書き項目は新聞・ニュースタイトル並みに短く、事実が伝わる最小文字数で書いてください"
+    "（例: `LocallyAI、LM Studio公式iPhoneアプリ化。LM Link対応`）。"
+    "説明調・背景説明は必要な場合だけにしてください。"
+)
 
 
 class CodexCliSummarizer:
@@ -41,32 +47,32 @@ class CodexCliSummarizer:
         raw_items_path = archive_directory / RAW_ITEMS_RELATIVE_PATH
         raw_items = raw_items_path.read_text()
         items = json.loads(raw_items)
-        chunks = _chunk_items(items, MAX_PROMPT_RAW_ITEMS)
+        category_groups = group_raw_items_by_category(items)
         with tempfile.TemporaryDirectory(prefix="hermes-pulse-codex-") as temp_dir:
             codex_context = Path(temp_dir)
             _stage_sanitized_codex_context(archive_directory, codex_context)
             partial_summaries: list[str] = []
-            for chunk_index, chunk in enumerate(chunks, start=1):
-                prompt = build_codex_digest_prompt(
-                    archive_directory,
-                    json.dumps(chunk, ensure_ascii=False),
-                    summary_format=self._summary_format,
-                    digest_command=self._digest_command,
-                    title_fetcher=self._title_fetcher,
-                    title_synthesizer=self._title_synthesizer,
-                    chunk_index=chunk_index,
-                    chunk_total=len(chunks),
-                )
-                partial_summaries.append(self._invocation.run(prompt, cwd=codex_context))
-            if len(partial_summaries) == 1:
-                content = partial_summaries[0]
-            else:
-                merge_prompt = build_codex_merge_prompt(
-                    partial_summaries,
-                    summary_format=self._summary_format,
-                    digest_command=self._digest_command,
-                )
-                content = self._invocation.run(merge_prompt, cwd=codex_context)
+            for category, category_items in category_groups.items():
+                chunks = _chunk_items([dict(item) for item in category_items], MAX_PROMPT_RAW_ITEMS)
+                for chunk_index, chunk in enumerate(chunks, start=1):
+                    prompt = build_codex_digest_prompt(
+                        archive_directory,
+                        json.dumps(chunk, ensure_ascii=False),
+                        summary_format=self._summary_format,
+                        digest_command=self._digest_command,
+                        title_fetcher=self._title_fetcher,
+                        title_synthesizer=self._title_synthesizer,
+                        chunk_index=chunk_index,
+                        chunk_total=len(chunks),
+                        category=category,
+                    )
+                    partial_summaries.append(self._invocation.run(prompt, cwd=codex_context))
+            merge_prompt = build_codex_merge_prompt(
+                partial_summaries,
+                summary_format=self._summary_format,
+                digest_command=self._digest_command,
+            )
+            content = self._invocation.run(merge_prompt, cwd=codex_context)
 
         output_path = archive_directory / CODEX_DIGEST_RELATIVE_PATH
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +137,9 @@ def build_codex_digest_prompt(
     title_synthesizer=None,
     chunk_index: int = 1,
     chunk_total: int = 1,
+    category: str | None = None,
 ) -> str:
+    category_heading = category_label(category) if category is not None else None
     prepared_raw_items = json.dumps(_prepare_items_for_prompt(json.loads(raw_items)), ensure_ascii=False)
     compact_raw_items, raw_item_counts = _compact_raw_items_for_prompt(
         prepared_raw_items,
@@ -150,9 +158,14 @@ def build_codex_digest_prompt(
         "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください。",
         "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください。",
         "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください。",
+        *(_category_prompt_instructions(category_heading) if category_heading is not None else []),
         f"この prompt は収集差分 chunk {chunk_index}/{chunk_total} です。chunk 内の重要事項を取りこぼさず要約してください。",
         "",
-        *build_summary_format_instructions(summary_format, digest_command=digest_command),
+        *(
+            build_category_summary_format_instructions(category_heading)
+            if category_heading is not None
+            else build_summary_format_instructions(summary_format, digest_command=digest_command)
+        ),
         "",
         "## item counts",
         "```json",
@@ -177,15 +190,17 @@ def build_codex_merge_prompt(
     lines = [
         "あなたは Hermes Pulse の最終編集担当です。",
         "以下は複数 chunk から作った部分要約です。重要事項を重複なく統合し、最終版だけを返してください。",
-        "出力は briefing-v1 を維持しつつ、内容はほぼそのまま維持してください。",
+        "重要な事実は維持し、表現はニュース見出し並みに短くしてください。",
         "明らかに関連する項目だけを軽く統合し、項目数を不必要に減らさないでください。",
         "情報量を落としすぎず、同一テーマの重複 bullet は最小限だけ統合してください。",
+        "最終版は必要なカテゴリだけを `AI / IT / 金融 / カメラ / 車 / スケジュール` の順で大カテゴリ見出しに分けてください。",
+        "カテゴリ見出しは `▫ AI` / `▫ IT` / `▫ 金融` / `▫ カメラ` / `▫ 車` / `▫ スケジュール` を使い、空カテゴリは省略してください。",
         "同じサービス・製品・AIモデルに関する話題は、会社・組織単位より優先してサービスごとにまとまりを意識して整理してください。",
         "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください。",
         "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください。",
         "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください。",
         "",
-        *build_summary_format_instructions(summary_format, digest_command=digest_command),
+        *build_categorized_summary_format_instructions(summary_format, digest_command=digest_command),
         "",
     ]
     for index, summary in enumerate(chunk_summaries, start=1):
@@ -203,6 +218,42 @@ def _stage_sanitized_codex_context(archive_directory: Path, codex_context: Path)
     codex_context.mkdir(parents=True, exist_ok=True)
 
 
+def _category_prompt_instructions(category_heading: str) -> list[str]:
+    return [
+        f"この prompt は大カテゴリ `{category_heading}` 専用です。他カテゴリの見出しや全体タイトルは出さないでください。",
+        "カテゴリ境界をまたいだ取捨選択を避け、このカテゴリ内の記事だけで重要度順に整理してください。",
+    ]
+
+
+def build_category_summary_format_instructions(category_heading: str) -> list[str]:
+    return [
+        "出力フォーマットはカテゴリ部分要約を厳守してください。",
+        f"先頭行は必ず `▫ {category_heading}` にしてください。全体タイトルは書かないでください。",
+        "その下に必要な件数だけ箇条書きしてください。各項目は 1 行で要点→必要なら文中リンク。",
+        HEADLINE_STYLE_INSTRUCTION,
+        "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
+        "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
+        "当日または近い日時の予定・期限だけは `▫ スケジュール` カテゴリで扱い、他カテゴリでは本文の補足に留めてください。",
+    ]
+
+
+def build_categorized_summary_format_instructions(summary_format: str, *, digest_command: str = "morning-digest") -> list[str]:
+    if summary_format == "briefing-v1":
+        title, schedule_heading = _briefing_v1_headings_for_command(digest_command)
+        return [
+            "出力フォーマットは category-briefing-v1 を厳守してください。",
+            f"全体タイトルは `{title}` を先頭に 1 回だけ書いてください。",
+            "その下は必要なカテゴリだけを `▫ AI` / `▫ IT` / `▫ 金融` / `▫ カメラ` / `▫ 車` / `▫ スケジュール` の順で出してください。空カテゴリは省略してください。",
+            f"`▫ スケジュール` は `{schedule_heading}` 相当の当日または近い日時の予定・期限だけを書く。無ければカテゴリごと省略してよい。",
+            "各カテゴリの下は必要な件数だけ箇条書きにし、重要事項の取りこぼしを避けてください。",
+            "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
+            HEADLINE_STYLE_INSTRUCTION,
+            "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
+            "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
+        ]
+    raise ValueError(f"Unsupported summary format: {summary_format}")
+
+
 def build_summary_format_instructions(summary_format: str, *, digest_command: str = "morning-digest") -> list[str]:
     if summary_format == "briefing-v1":
         title, schedule_heading = _briefing_v1_headings_for_command(digest_command)
@@ -213,6 +264,7 @@ def build_summary_format_instructions(summary_format: str, *, digest_command: st
             "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
             "`▫ 主要トピック` は必要な件数だけ箇条書きにしてよい。重要事項の取りこぼしを避け、各項目は 1 行で要点→必要なら文中リンク。",
             "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
+            HEADLINE_STYLE_INSTRUCTION,
             "`▫ 主要トピック` は internal source 名に引きずられず、与えられた URL/title/本文断片を同列に見て重要度順に選んでください。",
             f"`{schedule_heading}` は当日または近い日時の予定だけを書く。無ければ `- 目立った予定なし`。",
         ]

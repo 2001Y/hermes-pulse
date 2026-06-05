@@ -20,6 +20,7 @@ _SIGNAL_PATHS: dict[SignalType, tuple[str, str]] = {
         "/2/users/{user_id}/timelines/reverse_chronological?max_results=100&" + _REQUEST_FIELDS,
     ),
 }
+_SPEND_CAP_ERROR_TITLES = {"CreditsDepleted", "SpendCapReached"}
 
 
 class XUrlConnector:
@@ -79,6 +80,8 @@ class XUrlConnector:
             try:
                 return auth_type, self._runner(path, auth_type)
             except Exception as exc:
+                if _is_spend_cap_error(str(exc)):
+                    raise exc
                 last_error = exc
         assert last_error is not None
         raise last_error
@@ -199,10 +202,79 @@ def _title_from_text(text: str) -> str:
 
 
 def _run_xurl_json(path: str, auth_type: str) -> dict[str, Any]:
-    result = subprocess.run(
-        ["xurl", "--auth", auth_type, path],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["xurl", "--auth", auth_type, path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(_format_xurl_failure(path, auth_type, error)) from error
     return json.loads(result.stdout)
+
+
+def _format_xurl_failure(path: str, auth_type: str, error: subprocess.CalledProcessError) -> str:
+    stderr = (error.stderr or "").strip()
+    stdout = (error.stdout or "").strip()
+    detail = _extract_xurl_error_detail(stderr) or _extract_xurl_error_detail(stdout)
+    suffix = f": {detail}" if detail else ""
+    return f"xurl {auth_type} {path} failed{suffix}"
+
+
+def _is_spend_cap_error(message: str) -> bool:
+    normalized = message.lower()
+    return (
+        "creditsdepleted" in normalized
+        or "spendcapreached" in normalized
+        or "spend cap" in normalized
+        or "does not have any credits" in normalized
+    )
+
+
+def _extract_xurl_error_detail(text: str) -> str | None:
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    for start_index, char in enumerate(text):
+        if char not in "[{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text[start_index:])
+        except json.JSONDecodeError:
+            continue
+        detail = _detail_from_xurl_payload(payload)
+        if detail:
+            return detail
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else None
+
+
+def _detail_from_xurl_payload(payload: Any) -> str | None:
+    if isinstance(payload, dict):
+        title = payload.get("title")
+        detail = payload.get("detail")
+        if isinstance(title, str) and (title in _SPEND_CAP_ERROR_TITLES or _is_spend_cap_error(title)):
+            return _format_spend_cap_detail(title, detail if isinstance(detail, str) else None)
+        if isinstance(detail, str) and _is_spend_cap_error(detail):
+            return _format_spend_cap_detail(title if isinstance(title, str) else "SpendCapReached", detail)
+        if isinstance(title, str) and isinstance(detail, str):
+            return f"{title}: {detail}"
+        if isinstance(detail, str):
+            return detail
+        if isinstance(title, str):
+            return title
+    return None
+
+
+def _format_spend_cap_detail(title: str, detail: str | None) -> str:
+    reset_date = _extract_reset_date(detail or "")
+    suffix = f"; blocked until {reset_date}" if reset_date else ""
+    return f"{title}: X API spend cap reached{suffix}"
+
+
+def _extract_reset_date(text: str) -> str | None:
+    import re
+
+    match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+    return match.group(1) if match else None

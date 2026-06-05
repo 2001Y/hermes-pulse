@@ -140,16 +140,82 @@ def test_launcher_source_registry_reuses_default_registry_entries_via_include() 
     assert launcher_entry == default_entry
 
 
-def test_launcher_source_registry_prefers_direct_feeds_or_sitemaps_for_cine_sources_that_triggered_403s() -> None:
+def test_launcher_source_registry_prefers_direct_feeds_or_sitemaps_for_sources_that_triggered_search_errors() -> None:
     entries = {entry.id: entry for entry in load_source_registry(LAUNCHER_FIXTURE_PATH)}
+    direct_sources = {
+        "digital-camera-watch": "https://dc.watch.impress.co.jp/data/rss/1.0/dcw/feed.rdf",
+        "canon-rumors": "https://www.canonrumors.com/feed/",
+        "nikon-rumors": "https://nikonrumors.com/feed/",
+        "sonyalpha-rumors": "https://www.sonyalpharumors.com/feed/",
+        "fuji-rumors": "https://www.fujirumors.com/feed/",
+        "leica-rumors": "https://leicarumors.com/feed/",
+        "photo-rumors": "https://photorumors.com/feed/",
+        "mirrorless-rumors": "https://www.mirrorlessrumors.com/feed/",
+        "43-rumors": "https://www.43rumors.com/feed/",
+        "viltrox-global": "https://viltrox.com/sitemap.xml",
+        "ttartisan-global": "https://www.ttartisan.com/sitemap.xml",
+        "sevenartisans-global": "https://7artisans.com/sitemap.xml",
+        "tamron-global": "https://www.tamron.com/sitemap.xml",
+        "voigtlander-global": "https://www.voigtlaender.de/feed",
+        "zeiss-photography": "https://www.zeiss.com/sitemap.xml",
+        "blackmagic-design": "https://www.blackmagicdesign.com/rss",
+        "red-digital-cinema": "https://www.red.com/sitemap.xml",
+        "arri-news": "https://www.arri.com/service-sitemap-9ab01b4faec684298d4d23a8493d135a-sitemap_index.xml",
+        "cooke-optics": "https://www.cookeoptics.com/feed",
+        "zeiss-cine": "https://www.zeiss.com/sitemap.xml",
+        "viltrox-cine": "https://viltrox.com/sitemap.xml",
+        "cined": "https://www.cined.com/feed/",
+        "newsshooter": "https://www.newsshooter.com/feed/",
+        "provideo-coalition": "https://www.provideocoalition.com/feed/",
+        "studiodaily": "https://www.studiodaily.com/feed/",
+        "nisi-cine": "https://nisiopticsusa.com/feed/",
+        "meike-cine": "https://meikeglobal.com/sitemap.xml",
+        "sirui-cine": "https://store.sirui.com/sitemap.xml",
+    }
+    google_news_fallback_sources = {
+        "laowa-global",
+        "canon-cinema-eos",
+        "sony-cine",
+        "laowa-cine",
+        "angenieux",
+        "tokina-cinema",
+        "xeen",
+        "canon-cinema-lens",
+        "sony-cinema-lens",
+    }
 
-    assert entries["cined"].acquisition_mode == "rss_poll"
-    assert entries["cined"].rss_url == "https://www.cined.com/feed/"
-    assert entries["newsshooter"].acquisition_mode == "rss_poll"
-    assert entries["newsshooter"].rss_url == "https://www.newsshooter.com/feed/"
-    assert entries["provideo-coalition"].acquisition_mode == "rss_poll"
-    assert entries["provideo-coalition"].rss_url == "https://www.provideocoalition.com/feed/"
-    assert entries["zeiss-cine"].acquisition_mode == "rss_poll"
-    assert entries["zeiss-cine"].rss_url == "https://www.zeiss.com/sitemap.xml"
-    assert entries["viltrox-cine"].acquisition_mode == "rss_poll"
-    assert entries["viltrox-cine"].rss_url == "https://viltrox.com/sitemap.xml"
+    for source_id, rss_url in direct_sources.items():
+        assert entries[source_id].acquisition_mode == "rss_poll", source_id
+        assert entries[source_id].rss_url == rss_url, source_id
+
+    for source_id in google_news_fallback_sources:
+        entry = entries[source_id]
+        assert entry.domain == "news.google.com", source_id
+        assert entry.acquisition_mode == "rss_poll", source_id
+        assert entry.authority_tier == "discovery_only", source_id
+        assert entry.category_hint == "camera", source_id
+        assert entry.rss_url is not None and entry.rss_url.startswith("https://news.google.com/rss/search?q="), source_id
+        assert "google-news" in entry.topical_scopes, source_id
+        assert entry.requires_primary_confirmation is True, source_id
+
+
+def test_launcher_source_registry_includes_google_news_feeds_for_digest_categories() -> None:
+    entries = {entry.id: entry for entry in load_source_registry(LAUNCHER_FIXTURE_PATH)}
+    expected_categories = {
+        "google-news-ai": "ai",
+        "google-news-it": "it",
+        "google-news-finance": "finance",
+        "google-news-camera": "camera",
+        "google-news-car": "car",
+    }
+
+    for source_id, category in expected_categories.items():
+        entry = entries[source_id]
+        assert entry.domain == "news.google.com"
+        assert entry.acquisition_mode == "rss_poll"
+        assert entry.authority_tier == "discovery_only"
+        assert entry.category_hint == category
+        assert entry.rss_url is not None
+        assert entry.rss_url.startswith("https://news.google.com/rss/search?q=")
+        assert "OR" in entry.rss_url
+        assert {"google-news", category}.issubset(set(entry.topical_scopes))

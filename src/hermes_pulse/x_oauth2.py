@@ -207,7 +207,19 @@ def _write_shared_env_app_config(shared_env_path: Path, credentials: XOAuth2Cred
     env["X_CLIENT_ID"] = credentials.client_id
     env["X_CLIENT_SECRET"] = credentials.client_secret
     env["X_OAUTH2_USERNAME"] = credentials.username
+    stale_token_keys = {
+        "X_OAUTH2_ACCESS_TOKEN",
+        "X_OAUTH2_REFRESH_TOKEN",
+        "X_OAUTH2_EXPIRATION_TIME",
+    }
+    for key in stale_token_keys:
+        env.pop(key, None)
     lines = shared_env_path.read_text().splitlines() if shared_env_path.exists() else []
+    lines = [
+        line
+        for line in lines
+        if not any(line.startswith(f"export {key}=") for key in stale_token_keys)
+    ]
     for key, value in env.items():
         replacement = f'export {key}="{value}"'
         for index, line in enumerate(lines):

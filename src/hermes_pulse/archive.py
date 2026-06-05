@@ -91,13 +91,18 @@ def _append_source_ledgers(
     source_directory = archive_root / "sources"
     source_directory.mkdir(parents=True, exist_ok=True)
     existing_fingerprints_by_source: dict[str, dict[str, str]] = {}
+    seen_identities_by_source: dict[str, set[str]] = {}
 
     for item in items:
         ledger_path = source_directory / f"{item.source}.jsonl"
         seen_fingerprints = existing_fingerprints_by_source.setdefault(item.source, _load_existing_fingerprints(ledger_path))
+        seen_identities = seen_identities_by_source.setdefault(item.source, set())
         identity = _item_identity(item)
+        if identity in seen_identities:
+            continue
+        seen_identities.add(identity)
         fingerprint = _item_fingerprint(item)
-        if identity in seen_fingerprints:
+        if seen_fingerprints.get(identity) == fingerprint:
             continue
         seen_fingerprints[identity] = fingerprint
         record = asdict(item)

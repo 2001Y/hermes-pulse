@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from html.parser import HTMLParser
 
-DEFAULT_TITLE_SYNTH_MODEL = "gpt-5.3-codex-spark"
+DEFAULT_TITLE_SYNTH_MODEL = "gpt-5.4"
 DEFAULT_TITLE_FETCH_TIMEOUT_SECONDS = 5
 DEFAULT_TITLE_SYNTH_TIMEOUT_SECONDS = 30
 

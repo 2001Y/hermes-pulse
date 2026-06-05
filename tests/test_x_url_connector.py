@@ -1,4 +1,6 @@
-from hermes_pulse.connectors.x_url import XUrlConnector
+import subprocess
+
+from hermes_pulse.connectors.x_url import XUrlConnector, _run_xurl_json
 
 
 def test_xurl_connector_collects_bookmarks_likes_and_reverse_chronological_home_timeline() -> None:
@@ -201,3 +203,51 @@ def test_xurl_connector_limits_external_title_resolution_budget() -> None:
     assert synth_calls == [("First external link", "https://example.com/1")]
     assert items[0].title == "Synthesized title"
     assert items[1].title == "Second external link"
+
+
+def test_run_xurl_json_surfaces_credits_depleted_detail_without_account_id(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=args[0],
+            output="",
+            stderr=(
+                '{\n'
+                '  "account_id":1243608864848629761,\n'
+                '  "title":"CreditsDepleted",\n'
+                '  "detail":"Your enrolled account [1243608864848629761] does not have any credits to fulfill this request.",\n'
+                '  "type":"https://api.twitter.com/2/problems/credits"\n'
+                '}\n'
+                'Error: request failed\n'
+            ),
+        )
+
+    monkeypatch.setattr("hermes_pulse.connectors.x_url.subprocess.run", fake_run)
+
+    try:
+        _run_xurl_json("/2/users/42/bookmarks", "oauth2")
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "CreditsDepleted: X API spend cap reached" in message
+        assert "does not have any credits" not in message
+        assert "1243608864848629761" not in message
+        assert "/2/users/42/bookmarks" in message
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_xurl_connector_does_not_fall_back_to_oauth1_for_spend_cap() -> None:
+    requests: list[tuple[str, str]] = []
+
+    def runner(path: str, auth_type: str) -> dict:
+        requests.append((auth_type, path))
+        raise RuntimeError("SpendCapReached: X API spend cap reached; blocked until 2026-06-18")
+
+    try:
+        XUrlConnector(runner=runner).collect(["bookmarks"])
+    except RuntimeError as exc:
+        assert "SpendCapReached" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+    assert requests == [("oauth2", "/2/users/me")]

@@ -175,6 +175,35 @@ def test_post_canonical_digest_to_slack_prepends_source_error_notice_when_metada
     assert result.content == digest_path.read_text()
 
 
+def test_post_canonical_digest_to_slack_simplifies_x_spend_cap_source_error(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    metadata_path = archive_directory / "metadata" / "source-errors.json"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text("☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- test\n")
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "x_signals": "xurl oauth2 /2/users/42/bookmarks failed: SpendCapReached: X API spend cap reached; blocked until 2026-06-18"
+            },
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    calls: list[str] = []
+
+    direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=lambda text, *_args, **_kwargs: calls.append(text) or {"ok": True, "channel": "C123", "ts": "1"},
+    )
+
+    assert calls == [
+        "⚠ 一部ソース取得に失敗:\n- x_signals: X API spend cap到達。2026-06-18までX由来をスキップ。\n\n☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- test\n"
+    ]
+
+
 def test_post_canonical_digest_to_slack_converts_markdown_links_and_bullets_to_slack_friendly_text(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"
@@ -865,3 +894,82 @@ def test_summarize_archive_with_retries_preserves_original_error_when_metadata_w
             summarizer_factory=lambda **kwargs: AlwaysFailingSummarizer(),
             sleep=lambda _seconds: None,
         )
+
+
+def test_post_canonical_digest_to_slack_splits_categorized_digest_by_category_sections(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        "- [OpenAI update](https://example.com/ai)\n\n"
+        "▫ IT\n"
+        "- Redis CVE fixed\n\n"
+        "▫ 金融\n"
+        "- 日銀見通し\n\n"
+        "▫ スケジュール\n"
+        "- WWDC keynote\n"
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_post_message(
+        text: str,
+        channel: str,
+        thread_ts: str | None = None,
+        *,
+        unfurl_links: bool = False,
+        unfurl_media: bool = False,
+        blocks: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        calls.append({"text": text, "channel": channel, "thread_ts": thread_ts, "blocks": blocks})
+        return {"ok": True, "channel": channel, "ts": f"1712345.67{len(calls)}"}
+
+    result = direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=fake_post_message,
+        slack_message_limit=3500,
+    )
+
+    assert [call["text"].splitlines()[0] for call in calls] == [
+        "☀ *Hermes Pulse Morning Briefing*",
+        "▫ IT",
+        "▫ 金融",
+        "▫ スケジュール",
+    ]
+    assert "▫ AI" in calls[0]["text"]
+    assert "▫ IT" not in calls[0]["text"]
+    assert "<https://example.com/ai|OpenAI update>" in calls[0]["text"]
+    assert calls[0]["thread_ts"] is None
+    assert [call["thread_ts"] for call in calls[1:]] == ["1712345.671", "1712345.671", "1712345.671"]
+    assert result.posted_messages == [call["text"] for call in calls]
+
+
+def test_post_canonical_digest_to_slack_physically_splits_inside_large_category_before_next_category(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        + "\n".join(f"- AI item {index} " + ("x" * 45) for index in range(1, 6))
+        + "\n\n▫ カメラ\n- Camera item\n"
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_post_message(text: str, channel: str, thread_ts: str | None = None, **kwargs) -> dict[str, object]:
+        calls.append({"text": text, "thread_ts": thread_ts})
+        return {"ok": True, "channel": channel, "ts": f"1712345.67{len(calls)}"}
+
+    direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=fake_post_message,
+        slack_message_limit=170,
+    )
+
+    camera_index = next(index for index, call in enumerate(calls) if "▫ カメラ" in call["text"])
+    assert camera_index >= 1
+    assert all("▫ カメラ" not in call["text"] for call in calls[:camera_index])
+    assert "AI item 1" in calls[0]["text"]

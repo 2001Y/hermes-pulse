@@ -25,6 +25,7 @@ DEFAULT_SLACK_DIRECT_PATH = Path.home() / ".hermes" / "scripts" / "slack_direct.
 DEFAULT_SLACK_MESSAGE_LIMIT = 3500
 DEFAULT_RETRY_DELAYS_SECONDS = (300, 300)
 MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+CATEGORY_SECTION_HEADING_RE = re.compile(r"(?m)^▫ (?:AI|IT|金融|カメラ|車|スケジュール)\s*$")
 
 
 class SlackPoster(Protocol):
@@ -273,7 +274,7 @@ def post_canonical_digest_to_slack(
         _prepend_source_error_notice_if_needed(_render_digest_for_slack(content), archive_directory),
         archive_directory,
     )
-    message_chunks = _split_slack_text(rendered_message, limit=slack_message_limit)
+    message_chunks = _split_slack_digest_text(rendered_message, limit=slack_message_limit)
     message_chunk_blocks = [_build_slack_blocks(chunk) for chunk in message_chunks]
     poster = post_message or load_slack_direct_post_message()
     slack_responses = _post_slack_chunks(
@@ -409,10 +410,56 @@ def _prepend_source_error_notice_if_needed(markdown: str, archive_directory: Pat
     for source_id, message in sorted(payload.items()):
         if not isinstance(source_id, str) or not isinstance(message, str):
             continue
-        lines.append(f"- {source_id}: {message}")
+        lines.append(f"- {source_id}: {_format_source_error_message(source_id, message)}")
     if len(lines) == 1:
         return markdown
     return "\n".join(lines) + "\n\n" + markdown
+
+
+def _format_source_error_message(source_id: str, message: str) -> str:
+    if source_id == "x_signals" and _is_x_spend_cap_error(message):
+        reset_date = _extract_x_reset_date(message)
+        return f"X API spend cap到達。{reset_date}までX由来をスキップ。" if reset_date else "X API spend cap到達。X由来のみスキップ。"
+    return message
+
+
+def _is_x_spend_cap_error(message: str) -> bool:
+    normalized = message.lower()
+    return "spend cap" in normalized or "creditsdepleted" in normalized or "spendcapreached" in normalized
+
+
+def _extract_x_reset_date(message: str) -> str | None:
+    match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", message)
+    return match.group(1) if match else None
+
+
+def _split_slack_digest_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) -> list[str]:
+    categorized_chunks = _split_by_category_sections(text)
+    if categorized_chunks is None:
+        return _split_slack_text(text, limit=limit)
+
+    chunks: list[str] = []
+    for category_chunk in categorized_chunks:
+        chunks.extend(_split_slack_text(category_chunk, limit=limit))
+    return chunks or [text]
+
+
+def _split_by_category_sections(text: str) -> list[str] | None:
+    matches = list(CATEGORY_SECTION_HEADING_RE.finditer(text))
+    if len(matches) < 2:
+        return None
+
+    prefix = text[: matches[0].start()].rstrip()
+    sections: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        section = text[match.start() : end].strip()
+        if not section:
+            continue
+        if index == 0 and prefix:
+            section = f"{prefix}\n\n{section}"
+        sections.append(section)
+    return sections or None
 
 
 def _split_slack_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) -> list[str]:

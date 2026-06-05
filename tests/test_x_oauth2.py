@@ -129,6 +129,9 @@ def test_refresh_x_oauth2_token_refreshes_and_updates_xurl_without_writing_token
     assert 'export X_OAUTH2_USERNAME="akita"' in shared_env_text
     assert "new-access" not in shared_env_text
     assert "new-refresh" not in shared_env_text
+    assert "X_OAUTH2_ACCESS_TOKEN" not in shared_env_text
+    assert "X_OAUTH2_REFRESH_TOKEN" not in shared_env_text
+    assert "X_OAUTH2_EXPIRATION_TIME" not in shared_env_text
     xurl_text = xurl_path.read_text()
     assert "custom-app:" in xurl_text
     assert "access_token: new-access" in xurl_text

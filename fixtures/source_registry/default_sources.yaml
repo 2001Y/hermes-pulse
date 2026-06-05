@@ -465,8 +465,9 @@ sources:
     source_family: specialist_camera_media
     domain: dc.watch.impress.co.jp
     title: デジカメ Watch
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://dc.watch.impress.co.jp/data/rss/1.0/dcw/feed.rdf
     search_hints:
       - site:dc.watch.impress.co.jp カメラ レンズ 中華レンズ ミラーレス
     topical_scopes: [camera, lenses, japan-market, mirrorless]
@@ -477,8 +478,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: canonrumors.com
     title: Canon Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.canonrumors.com/feed/
     search_hints:
       - site:canonrumors.com Canon rumors camera lens RF
     topical_scopes: [camera, canon, rumors, lenses]
@@ -489,8 +491,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: nikonrumors.com
     title: Nikon Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://nikonrumors.com/feed/
     search_hints:
       - site:nikonrumors.com Nikon rumors camera lens Z-mount
     topical_scopes: [camera, nikon, rumors, lenses]
@@ -501,8 +504,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: sonyalpharumors.com
     title: SonyAlpha Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.sonyalpharumors.com/feed/
     search_hints:
       - site:sonyalpharumors.com Sony Alpha rumors camera lens E-mount
     topical_scopes: [camera, sony, rumors, mirrorless]
@@ -513,8 +517,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: fujirumors.com
     title: Fuji Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.fujirumors.com/feed/
     search_hints:
       - site:fujirumors.com Fuji rumors camera lens X-mount GFX
     topical_scopes: [camera, fujifilm, rumors, lenses]
@@ -525,8 +530,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: leicarumors.com
     title: Leica Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://leicarumors.com/feed/
     search_hints:
       - site:leicarumors.com Leica rumors camera lens Q M SL
     topical_scopes: [camera, leica, rumors, premium]
@@ -537,8 +543,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: photorumors.com
     title: Photo Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://photorumors.com/feed/
     search_hints:
       - site:photorumors.com camera rumors lens rumors
     topical_scopes: [camera, rumors, lenses, industry]
@@ -549,8 +556,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: mirrorlessrumors.com
     title: Mirrorless Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.mirrorlessrumors.com/feed/
     search_hints:
       - site:mirrorlessrumors.com mirrorless rumors camera lens
     topical_scopes: [camera, rumors, mirrorless, lenses]
@@ -561,8 +569,9 @@ sources:
     source_family: specialist_camera_rumors
     domain: 43rumors.com
     title: 43 Rumors
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.43rumors.com/feed/
     search_hints:
       - site:43rumors.com Micro Four Thirds rumors camera lens
     topical_scopes: [camera, micro-four-thirds, rumors, lenses]
@@ -573,8 +582,9 @@ sources:
     source_family: official_camera_news
     domain: viltrox.com
     title: Viltrox Global
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://viltrox.com/sitemap.xml
     search_hints:
       - site:viltrox.com Viltrox lens AF camera announcement
     topical_scopes: [camera, lenses, chinese-lenses, mirrorless]
@@ -582,23 +592,26 @@ sources:
     requires_primary_confirmation: false
 
   - id: laowa-global
-    source_family: official_camera_news
-    domain: venuslens.net
-    title: Laowa Global
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Laowa Global
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Avenuslens.net+Laowa+lens+camera&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:venuslens.net Laowa lens macro probe camera announcement
-    topical_scopes: [camera, lenses, chinese-lenses, specialty]
+    topical_scopes: [google-news, camera, lenses, chinese-lenses, specialty]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: ttartisan-global
     source_family: official_camera_news
     domain: ttartisan.com
     title: TTArtisan Global
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.ttartisan.com/sitemap.xml
     search_hints:
       - site:ttartisan.com TTArtisan lens camera announcement
     topical_scopes: [camera, lenses, chinese-lenses, manual-focus]
@@ -609,8 +622,9 @@ sources:
     source_family: official_camera_news
     domain: 7artisans.com
     title: 7Artisans Global
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://7artisans.com/sitemap.xml
     search_hints:
       - site:7artisans.com 7Artisans lens camera announcement
     topical_scopes: [camera, lenses, chinese-lenses, manual-focus]
@@ -633,8 +647,9 @@ sources:
     source_family: official_camera_news
     domain: tamron.com
     title: TAMRON Global
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.tamron.com/sitemap.xml
     search_hints:
       - site:tamron.com lens camera mirrorless Tamron announcement
     topical_scopes: [camera, lenses, tamron, mirrorless]
@@ -645,8 +660,9 @@ sources:
     source_family: official_camera_news
     domain: voigtlaender.de
     title: Voigtländer Global
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.voigtlaender.de/feed
     search_hints:
       - site:voigtlaender.de Voigtlander lens VM E Z announcement
     topical_scopes: [camera, lenses, voigtlander, manual-focus]
@@ -657,8 +673,9 @@ sources:
     source_family: official_camera_news
     domain: zeiss.com
     title: ZEISS Photography
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.zeiss.com/sitemap.xml
     search_hints:
       - site:zeiss.com photography lens Otus Batis Loxia announcement
     topical_scopes: [camera, lenses, zeiss, premium]
@@ -669,8 +686,9 @@ sources:
     source_family: official_cine_news
     domain: blackmagicdesign.com
     title: Blackmagic Design
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.blackmagicdesign.com/rss
     search_hints:
       - site:blackmagicdesign.com Blackmagic camera cinema davinci resolve announcement
     topical_scopes: [cine, cameras, post-production, blackmagic]
@@ -681,8 +699,9 @@ sources:
     source_family: official_cine_news
     domain: red.com
     title: RED Digital Cinema
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.red.com/sitemap.xml
     search_hints:
       - site:red.com RED cinema camera Komodo V-Raptor announcement
     topical_scopes: [cine, cameras, red, production]
@@ -693,8 +712,9 @@ sources:
     source_family: official_cine_news
     domain: arri.com
     title: ARRI News
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.arri.com/service-sitemap-9ab01b4faec684298d4d23a8493d135a-sitemap_index.xml
     search_hints:
       - site:arri.com ARRI camera lighting cinema announcement
     topical_scopes: [cine, cameras, lighting, arri]
@@ -702,35 +722,40 @@ sources:
     requires_primary_confirmation: false
 
   - id: canon-cinema-eos
-    source_family: official_cine_news
-    domain: usa.canon.com
-    title: Canon Cinema EOS
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Canon Cinema EOS
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Ausa.canon.com+Cinema+EOS+camera+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:usa.canon.com Cinema EOS camera lens announcement
-    topical_scopes: [cine, cameras, canon, lenses]
+    topical_scopes: [google-news, cine, cameras, canon, lenses]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: sony-cine
-    source_family: official_cine_news
-    domain: sony.com
-    title: Sony Cine
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Sony Cine
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Asony.com+CineAlta+FX+cinema+camera+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:sony.com CineAlta FX cinema camera lens announcement
-    topical_scopes: [cine, cameras, sony, production]
+    topical_scopes: [google-news, cine, cameras, sony, production]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: cooke-optics
     source_family: official_cine_news
     domain: cookeoptics.com
     title: Cooke Optics
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://www.cookeoptics.com/feed
     search_hints:
       - site:cookeoptics.com cine lens announcement
     topical_scopes: [cine, lenses, cooke, premium]
@@ -776,16 +801,18 @@ sources:
     requires_primary_confirmation: false
 
   - id: laowa-cine
-    source_family: official_cine_news
-    domain: venuslens.net
-    title: Laowa Cine
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Laowa Cine
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Avenuslens.net+Laowa+cine+lens&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:venuslens.net cine Laowa lens announcement
-    topical_scopes: [cine, lenses, laowa, specialty]
+    topical_scopes: [google-news, cine, lenses, laowa, specialty]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: viltrox-cine
     source_family: official_cine_news
@@ -869,8 +896,9 @@ sources:
     source_family: specialist_cine_media
     domain: studiodaily.com
     title: StudioDaily
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: trusted_secondary
+    rss_url: https://www.studiodaily.com/feed/
     search_hints:
       - site:studiodaily.com cinema production camera post news
     topical_scopes: [cine, production, post-production, industry]
@@ -904,16 +932,18 @@ sources:
     requires_primary_confirmation: true
 
   - id: angenieux
-    source_family: official_cine_news
-    domain: angenieux.com
-    title: Angénieux
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Angénieux
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Aangenieux.com+Angenieux+cine+lens+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:angenieux.com cine lens zoom announcement
-    topical_scopes: [cine, lenses, angenieux, premium]
+    topical_scopes: [google-news, cine, lenses, angenieux, premium]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: atlas-lens-co
     source_family: official_cine_news
@@ -930,10 +960,11 @@ sources:
 
   - id: nisi-cine
     source_family: official_cine_news
-    domain: nisifilters.com
+    domain: nisiopticsusa.com
     title: NiSi Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://nisiopticsusa.com/feed/
     search_hints:
       - site:nisifilters.com cine lens Athena Aureus announcement
     topical_scopes: [cine, lenses, nisi, production]
@@ -941,28 +972,32 @@ sources:
     requires_primary_confirmation: false
 
   - id: tokina-cinema
-    source_family: official_cine_news
-    domain: tokinalens.com
-    title: Tokina Cinema
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Tokina Cinema
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Atokinalens.com+Tokina+Cinema+lens+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:tokinalens.com cinema lens Vista announcement
-    topical_scopes: [cine, lenses, tokina, production]
+    topical_scopes: [google-news, cine, lenses, tokina, production]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: xeen
-    source_family: official_cine_news
-    domain: xeenlens.com
-    title: XEEN
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - XEEN
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=XEEN+Samyang+cinema+lens+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:xeenlens.com cine lens Samyang XEEN announcement
-    topical_scopes: [cine, lenses, xeen, production]
+    topical_scopes: [google-news, cine, lenses, xeen, production]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: schneider-kreuznach-cine
     source_family: official_cine_news
@@ -1007,8 +1042,9 @@ sources:
     source_family: official_cine_news
     domain: sirui.com
     title: SIRUI Cine
-    acquisition_mode: known_source_search
+    acquisition_mode: rss_poll
     authority_tier: primary
+    rss_url: https://store.sirui.com/sitemap.xml
     search_hints:
       - site:sirui.com cine lens announcement
     topical_scopes: [cine, lenses, sirui, production]
@@ -1042,16 +1078,18 @@ sources:
     requires_primary_confirmation: false
 
   - id: canon-cinema-lens
-    source_family: official_cine_news
-    domain: usa.canon.com
-    title: Canon Cinema Lens
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Canon Cinema Lens
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Ausa.canon.com+Canon+cinema+lens+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:usa.canon.com cinema lens Canon announcement
-    topical_scopes: [cine, lenses, canon, production]
+    topical_scopes: [google-news, cine, lenses, canon, production]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: fujinon-cine-broadcast
     source_family: official_cine_news
@@ -1067,16 +1105,18 @@ sources:
     requires_primary_confirmation: false
 
   - id: sony-cinema-lens
-    source_family: official_cine_news
-    domain: sony.com
-    title: Sony Cinema Lens
-    acquisition_mode: known_source_search
-    authority_tier: primary
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Sony Cinema Lens
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=site%3Asony.com+Sony+cinema+lens+announcement&hl=en-US&gl=US&ceid=US:en
     search_hints:
       - site:sony.com cinema lens Sony announcement
-    topical_scopes: [cine, lenses, sony, production]
+    topical_scopes: [google-news, cine, lenses, sony, production]
+    category_hint: camera
     language: en
-    requires_primary_confirmation: false
+    requires_primary_confirmation: true
 
   - id: panasonic-leica-lmount-video
     source_family: official_cine_news
@@ -1129,3 +1169,73 @@ sources:
     topical_scopes: [cine, lenses, anamorphic, greatjoy]
     language: en
     requires_primary_confirmation: false
+
+  - id: google-news-ai
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - AI
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=AI+OR+OpenAI+OR+Anthropic+OR+Gemini+OR+Claude+OR+LLM&hl=ja&gl=JP&ceid=JP:ja
+    search_hints:
+      - Google News AI OR OpenAI OR Anthropic OR Gemini OR Claude OR LLM
+    topical_scopes: [google-news, ai, llm, agents]
+    category_hint: ai
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: google-news-it
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - IT
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=セキュリティ+OR+CVE+OR+クラウド+OR+ソフトウェア+OR+Apple+OR+Microsoft&hl=ja&gl=JP&ceid=JP:ja
+    search_hints:
+      - Google News セキュリティ OR CVE OR クラウド OR ソフトウェア OR Apple OR Microsoft
+    topical_scopes: [google-news, it, security, software]
+    category_hint: it
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: google-news-finance
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Finance
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=金融+OR+日銀+OR+為替+OR+株式+OR+フィンテック+OR+銀行&hl=ja&gl=JP&ceid=JP:ja
+    search_hints:
+      - Google News 金融 OR 日銀 OR 為替 OR 株式 OR フィンテック OR 銀行
+    topical_scopes: [google-news, finance, markets, fintech]
+    category_hint: finance
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: google-news-camera
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Camera
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=カメラ+OR+レンズ+OR+ミラーレス+OR+Leica+OR+SIGMA+OR+中華レンズ&hl=ja&gl=JP&ceid=JP:ja
+    search_hints:
+      - Google News カメラ OR レンズ OR ミラーレス OR Leica OR SIGMA OR 中華レンズ
+    topical_scopes: [google-news, camera, lenses, mirrorless]
+    category_hint: camera
+    language: ja
+    requires_primary_confirmation: true
+
+  - id: google-news-car
+    source_family: google_news_search
+    domain: news.google.com
+    title: Google News - Car/EV
+    acquisition_mode: rss_poll
+    authority_tier: discovery_only
+    rss_url: https://news.google.com/rss/search?q=EV+OR+自動車+OR+電気自動車+OR+MINI+OR+Tesla+OR+BYD+OR+充電&hl=ja&gl=JP&ceid=JP:ja
+    search_hints:
+      - Google News EV OR 自動車 OR 電気自動車 OR MINI OR Tesla OR BYD OR 充電
+    topical_scopes: [google-news, car, ev, charging]
+    category_hint: car
+    language: ja
+    requires_primary_confirmation: true

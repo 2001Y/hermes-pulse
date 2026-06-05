@@ -118,6 +118,7 @@ class SourceRegistryEntry:
     rss_url: str | None = None
     search_hints: list[str] = field(default_factory=list)
     topical_scopes: list[str] = field(default_factory=list)
+    category_hint: str | None = None
     language: str | None = None
     requires_primary_confirmation: bool = False
 

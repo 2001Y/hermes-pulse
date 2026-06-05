@@ -53,9 +53,11 @@ def test_codex_cli_summarizer_builds_grounded_prompt_and_writes_canonical_digest
     )
     assert artifact.path.exists()
     assert artifact.path.read_text() == artifact.content
-    assert len(invocation.calls) == 1
+    assert len(invocation.calls) == 2
     assert invocation.calls[0]["cwd"] != archive_directory
     assert invocation.calls[0]["raw_items_exists"] is False
+    assert invocation.calls[1]["cwd"] != archive_directory
+    assert invocation.calls[1]["raw_items_exists"] is False
 
     prompt = invocation.calls[0]["prompt"]
     assert isinstance(prompt, str)

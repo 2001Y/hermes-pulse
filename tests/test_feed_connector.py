@@ -1,3 +1,4 @@
+import gzip
 from pathlib import Path
 from urllib.request import Request
 
@@ -93,6 +94,24 @@ def test_feed_registry_connector_collects_rdf_feed_items_with_provenance() -> No
     assert item.provenance is not None
     assert item.provenance.primary_source_url == "https://applech2.com/2026/04/index-update"
     assert item.citation_chain[0].relation == "secondary"
+
+
+def test_feed_registry_connector_accepts_payload_with_leading_whitespace_before_xml_declaration() -> None:
+    entry = SourceRegistryEntry(
+        id="mirrorless-rumors",
+        source_family="specialist_camera_rumors",
+        domain="mirrorlessrumors.com",
+        title="Mirrorless Rumors",
+        acquisition_mode="rss_poll",
+        authority_tier="trusted_secondary",
+        rss_url="https://www.mirrorlessrumors.com/feed/",
+    )
+    connector = FeedRegistryConnector(fetcher=lambda url: " \n" + FIXTURE_XML)
+
+    items = connector.collect([entry])
+
+    assert len(items) == 1
+    assert items[0].title == "Launch update"
 
 
 def test_feed_registry_connector_collects_atom_entries_with_link_href_and_updated_timestamp() -> None:
@@ -258,6 +277,7 @@ def test_feed_registry_connector_fetches_live_payloads_with_browser_headers_when
     monkeypatch,
 ) -> None:
     requests: list[Request] = []
+    contexts: list[object] = []
 
     class DummyResponse:
         def __enter__(self):
@@ -271,6 +291,7 @@ def test_feed_registry_connector_fetches_live_payloads_with_browser_headers_when
 
     def fake_urlopen(request: Request, *args, **kwargs) -> DummyResponse:
         requests.append(request)
+        contexts.append(kwargs.get("context"))
         assert kwargs.get("timeout") == 20
         return DummyResponse()
 
@@ -294,6 +315,78 @@ def test_feed_registry_connector_fetches_live_payloads_with_browser_headers_when
     headers = {key.lower(): value for key, value in request.header_items()}
     assert headers["user-agent"]
     assert headers["accept"]
+    assert contexts and contexts[0] is not None
+    assert [item.title for item in items] == ["Launch update"]
+
+
+def test_feed_registry_connector_percent_encodes_non_ascii_feed_urls_before_fetch(monkeypatch) -> None:
+    requests: list[Request] = []
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return FIXTURE_XML.encode("utf-8")
+
+    def fake_urlopen(request: Request, *args, **kwargs) -> DummyResponse:
+        requests.append(request)
+        return DummyResponse()
+
+    monkeypatch.setattr(feed_registry_module, "urlopen", fake_urlopen)
+    entry = SourceRegistryEntry(
+        id="google-news-camera",
+        source_family="google_news_search",
+        domain="news.google.com",
+        title="Google News - Camera",
+        acquisition_mode="rss_poll",
+        authority_tier="discovery_only",
+        rss_url="https://news.google.com/rss/search?q=カメラ+OR+レンズ&hl=ja&gl=JP&ceid=JP:ja",
+    )
+
+    items = FeedRegistryConnector().collect([entry])
+
+    assert [item.title for item in items] == ["Launch update"]
+    assert requests[0].full_url == (
+        "https://news.google.com/rss/search?"
+        "q=%E3%82%AB%E3%83%A1%E3%83%A9+OR+%E3%83%AC%E3%83%B3%E3%82%BA&hl=ja&gl=JP&ceid=JP:ja"
+    )
+
+
+def test_feed_registry_connector_decodes_gzip_encoded_feed_payloads_when_server_sets_content_encoding(
+    monkeypatch,
+) -> None:
+    class DummyResponse:
+        headers = {"Content-Encoding": "gzip"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return gzip.compress(FIXTURE_XML.encode("utf-8"))
+
+    def fake_urlopen(request: Request, *args, **kwargs) -> DummyResponse:
+        return DummyResponse()
+
+    monkeypatch.setattr(feed_registry_module, "urlopen", fake_urlopen)
+    entry = SourceRegistryEntry(
+        id="official-blog",
+        source_family="company_updates",
+        domain="example.com",
+        title="Example Official Blog",
+        acquisition_mode="rss_poll",
+        authority_tier="primary",
+        rss_url="https://example.com/feed.xml",
+    )
+
+    items = FeedRegistryConnector().collect([entry])
+
     assert [item.title for item in items] == ["Launch update"]
 
 

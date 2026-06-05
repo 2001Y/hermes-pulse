@@ -1,7 +1,9 @@
+import json
 import logging
-import urllib.error
+import ssl
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -11,14 +13,20 @@ from hermes_pulse.models import CitationLink, CollectedItem, Provenance, SourceR
 
 
 logger = logging.getLogger(__name__)
+try:
+    import certifi
+except ImportError:  # pragma: no cover - certifi is expected in packaged/runtime envs.
+    certifi = None
+
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; HermesPulse/0.1; +https://github.com/2001Y/HermesPulse)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
+SIGMA_NEWS_JSON_URL = "https://www.sigma-global.com/en/news/include/entry_list_for_news_top.json"
 
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
-BING_RSS_ENDPOINT = "https://www.bing.com/search?format=rss"
+_SSL_CONTEXT: ssl.SSLContext | None = None
 
 
 class KnownSourceSearchConnector:
@@ -139,14 +147,21 @@ def _build_search_url(query: str) -> str:
     return f"{SEARCH_ENDPOINT}?q={quote_plus(query)}"
 
 
-def _build_bing_rss_url(query: str) -> str:
-    return f"{BING_RSS_ENDPOINT}&q={quote_plus(query)}"
-
 
 def _fetch_url(url: str) -> str:
     request = Request(url, headers=DEFAULT_HEADERS)
-    with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
+    with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS, context=_ssl_context()) as response:
         return response.read().decode("utf-8")
+
+
+def _ssl_context() -> ssl.SSLContext:
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is None:
+        if certifi is not None:
+            _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+        else:
+            _SSL_CONTEXT = ssl.create_default_context()
+    return _SSL_CONTEXT
 
 
 def _collect_search_items(
@@ -155,15 +170,8 @@ def _collect_search_items(
     query: str,
     fetcher: Callable[[str], str],
 ) -> list[CollectedItem]:
-    try:
-        payload = fetcher(_build_search_url(query))
-        return _parse_duckduckgo_items(entry, payload, query)
-    except urllib.error.HTTPError as exc:
-        if exc.code != 403:
-            raise
-        logger.info("DuckDuckGo HTML search returned 403 for %s; retrying via Bing RSS", entry.id)
-        payload = fetcher(_build_bing_rss_url(query))
-        return _parse_bing_rss_items(entry, payload, query)
+    payload = fetcher(_build_search_url(query))
+    return _parse_duckduckgo_items(entry, payload, query)
 
 
 def _parse_duckduckgo_items(entry: SourceRegistryEntry, payload: str, query: str) -> list[CollectedItem]:
@@ -172,19 +180,6 @@ def _parse_duckduckgo_items(entry: SourceRegistryEntry, payload: str, query: str
     parser.close()
     return _build_result_items(entry, parser.results, query=query)
 
-
-def _parse_bing_rss_items(entry: SourceRegistryEntry, payload: str, query: str) -> list[CollectedItem]:
-    root = ElementTree.fromstring(payload)
-    results: list[_SearchResult] = []
-    for item in root.findall('./channel/item'):
-        results.append(
-            _SearchResult(
-                title=(item.findtext('title') or '').strip() or None,
-                url=(item.findtext('link') or '').strip() or None,
-                snippet=(item.findtext('description') or '').strip() or None,
-            )
-        )
-    return _build_result_items(entry, results, query=query)
 
 
 def _build_result_items(entry: SourceRegistryEntry, results: Sequence[_SearchResult], *, query: str) -> list[CollectedItem]:
@@ -216,6 +211,7 @@ def _build_result_items(entry: SourceRegistryEntry, results: Sequence[_SearchRes
                 metadata={
                     "search_query": query,
                     "search_rank": search_rank,
+                    **_entry_category_metadata(entry),
                 },
             )
         )
@@ -231,11 +227,14 @@ def _collect_direct_items(
     if _supports_anthropic_news_sitemap(entry):
         payload = fetcher('https://www.anthropic.com/sitemap.xml')
         urls = _extract_sitemap_urls(payload, prefix='https://www.anthropic.com/news/')
-        return _build_direct_items(entry, urls, query=query) if urls else None
+        return _build_direct_items(entry, urls, query=query)
     if _supports_xai_news_page(entry):
         payload = fetcher('https://x.ai/news')
         urls = _extract_news_page_urls(payload, base_url='https://x.ai/news', path_prefix='/news/')
-        return _build_direct_items(entry, urls, query=query) if urls else None
+        return _build_direct_items(entry, urls, query=query)
+    if _supports_sigma_news_json(entry):
+        payload = fetcher(SIGMA_NEWS_JSON_URL)
+        return _build_sigma_news_items(entry, payload, query=query)
     return None
 
 
@@ -245,6 +244,10 @@ def _supports_anthropic_news_sitemap(entry: SourceRegistryEntry) -> bool:
 
 def _supports_xai_news_page(entry: SourceRegistryEntry) -> bool:
     return any(hint.strip().startswith('site:x.ai/news') for hint in entry.search_hints)
+
+
+def _supports_sigma_news_json(entry: SourceRegistryEntry) -> bool:
+    return entry.domain == "sigma-global.com"
 
 
 def _extract_sitemap_urls(payload: str, *, prefix: str) -> list[str]:
@@ -315,10 +318,73 @@ def _build_direct_items(entry: SourceRegistryEntry, urls: Sequence[str], *, quer
                     raw_record_id=resolved_url,
                 ),
                 citation_chain=[CitationLink(label=title, url=resolved_url, relation=relation)],
-                metadata={'search_query': query, 'search_rank': rank},
+                metadata={"search_query": query, "search_rank": rank, **_entry_category_metadata(entry)},
             )
         )
     return items
+
+
+def _build_sigma_news_items(entry: SourceRegistryEntry, payload: str, *, query: str) -> list[CollectedItem]:
+    relation = 'primary' if entry.authority_tier == 'primary' else 'secondary'
+    records = json.loads(payload)
+    if not isinstance(records, list):
+        return []
+    items: list[CollectedItem] = []
+    for rank, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            continue
+        raw_url = record.get('u')
+        if not isinstance(raw_url, str):
+            continue
+        resolved_url = urljoin('https://www.sigma-global.com/', raw_url)
+        if not _url_matches_domain(resolved_url, entry.domain):
+            continue
+        raw_title = record.get('t')
+        title = unescape(raw_title.strip()) if isinstance(raw_title, str) and raw_title.strip() else _title_from_url(resolved_url)
+        published_at = record.get('n_d') or record.get('d')
+        categories = record.get('c')
+        if not isinstance(categories, list):
+            categories = []
+        items.append(
+            CollectedItem(
+                id=f"{entry.id}:{resolved_url}",
+                source=entry.id,
+                source_kind='document',
+                title=title,
+                url=resolved_url,
+                provenance=Provenance(
+                    provider=entry.domain,
+                    acquisition_mode=entry.acquisition_mode,
+                    authority_tier=entry.authority_tier,
+                    primary_source_url=resolved_url,
+                    raw_record_id=resolved_url,
+                ),
+                citation_chain=[CitationLink(label=title, url=resolved_url, relation=relation)],
+                metadata={
+                    'search_query': query,
+                    'search_rank': rank,
+                    'official_json_source_url': SIGMA_NEWS_JSON_URL,
+                    'published_at': published_at if isinstance(published_at, str) else None,
+                    'categories': [category for category in categories if isinstance(category, str)],
+                    **_entry_category_metadata(entry),
+                },
+            )
+        )
+    return items
+
+
+def _title_from_url(url: str) -> str:
+    slug = url.rstrip('/').split('/')[-1].replace('-', ' ').replace('_', ' ')
+    return slug[:1].upper() + slug[1:] if slug else url
+
+
+def _entry_category_metadata(entry: SourceRegistryEntry) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    if entry.category_hint:
+        metadata["category_hint"] = entry.category_hint
+    if entry.topical_scopes:
+        metadata["topical_scopes"] = list(entry.topical_scopes)
+    return metadata
 
 
 def _resolve_result_url(url: str | None) -> str | None:

@@ -1,7 +1,10 @@
+import gzip
 import logging
+import ssl
 from collections.abc import Callable, Iterator, Sequence
 from html import unescape
 from html.parser import HTMLParser
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
@@ -9,6 +12,11 @@ from hermes_pulse.models import CitationLink, CollectedItem, ItemTimestamps, Pro
 
 
 logger = logging.getLogger(__name__)
+try:
+    import certifi
+except ImportError:  # pragma: no cover - certifi is expected in packaged/runtime envs.
+    certifi = None
+
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; HermesPulse/0.1; +https://github.com/2001Y/HermesPulse)",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
@@ -16,6 +24,7 @@ DEFAULT_HEADERS = {
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
 DEFAULT_ARTICLE_BODY_MAX_LENGTH = 1200
 MAX_ITEMS_PER_SOURCE = 20
+_SSL_CONTEXT: ssl.SSLContext | None = None
 
 
 class FeedRegistryConnector:
@@ -69,7 +78,7 @@ class FeedRegistryConnector:
     ) -> list[CollectedItem]:
         if remaining_budget <= 0:
             return []
-        root = ElementTree.fromstring(payload)
+        root = ElementTree.fromstring(payload.lstrip())
         if _local_name(root.tag) in {"urlset", "sitemapindex"}:
             return self._parse_sitemap_items(
                 entry,
@@ -106,6 +115,7 @@ class FeedRegistryConnector:
                         raw_record_id=guid,
                     ),
                     citation_chain=[CitationLink(label=title or entry.title, url=url or entry.rss_url, relation=relation)],
+                    metadata=_entry_category_metadata(entry),
                 )
             )
         return parsed_items
@@ -167,7 +177,11 @@ class FeedRegistryConnector:
                         raw_record_id=url,
                     ),
                     citation_chain=[CitationLink(label=title or entry.title, url=url, relation=relation)],
-                    metadata={"sitemap_source_url": source_url, "search_rank": index},
+                    metadata={
+                        "sitemap_source_url": source_url,
+                        "search_rank": index,
+                        **_entry_category_metadata(entry),
+                    },
                 )
             )
         return parsed_items
@@ -223,9 +237,41 @@ def _extract_article_text(payload: str) -> str | None:
 
 
 def _fetch_url(url: str) -> str:
-    request = Request(url, headers=DEFAULT_HEADERS)
-    with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
-        return response.read().decode("utf-8")
+    request = Request(_quote_request_url(url), headers=DEFAULT_HEADERS)
+    with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS, context=_ssl_context()) as response:
+        return _decode_response_body(response.read(), content_encoding=_header_value(response, "Content-Encoding"))
+
+
+def _quote_request_url(url: str) -> str:
+    return quote(url, safe=":/?#[]@!$&'()*+,;=%")
+
+
+def _ssl_context() -> ssl.SSLContext:
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is None:
+        if certifi is not None:
+            _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+        else:
+            _SSL_CONTEXT = ssl.create_default_context()
+    return _SSL_CONTEXT
+
+
+def _decode_response_body(body: bytes, *, content_encoding: str | None) -> str:
+    normalized_encoding = (content_encoding or "").lower()
+    if "gzip" in normalized_encoding or body.startswith(b"\x1f\x8b"):
+        body = gzip.decompress(body)
+    return body.decode("utf-8")
+
+
+def _header_value(response: object, name: str) -> str | None:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return None
+    value = getter(name)
+    return value if isinstance(value, str) else None
 
 
 def _iter_feed_items(root: ElementTree.Element) -> Iterator[ElementTree.Element]:
@@ -284,6 +330,15 @@ def _title_from_url(url: str) -> str:
     if not slug:
         return url
     return slug[:1].upper() + slug[1:]
+
+
+def _entry_category_metadata(entry: SourceRegistryEntry) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    if entry.category_hint:
+        metadata["category_hint"] = entry.category_hint
+    if entry.topical_scopes:
+        metadata["topical_scopes"] = list(entry.topical_scopes)
+    return metadata
 
 
 def _local_name(tag: str) -> str:
