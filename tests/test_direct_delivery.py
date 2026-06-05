@@ -262,7 +262,7 @@ def test_post_canonical_digest_to_slack_converts_markdown_links_and_bullets_to_s
     assert result.content == digest_path.read_text()
 
 
-def test_post_canonical_digest_to_slack_autolinks_unlinked_bullets_from_raw_items(tmp_path: Path) -> None:
+def test_post_canonical_digest_to_slack_does_not_rewrite_unlinked_bullets_from_raw_items(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"
     raw_items_path = archive_directory / "raw" / "collected-items.json"
@@ -300,7 +300,7 @@ def test_post_canonical_digest_to_slack_autolinks_unlinked_bullets_from_raw_item
     assert calls == [
         "☀ *Hermes Pulse Morning Briefing*\n\n"
         "▫ AI\n"
-        "- Anthropic、<https://example.com/anthropic-pricing|AI料金ショック>で成長鈍化懸念\n"
+        "- Anthropic、AI料金ショックで成長鈍化懸念\n"
     ]
     assert result.content == digest_path.read_text()
 

@@ -23,8 +23,14 @@ HEADLINE_STYLE_INSTRUCTION = (
     "（例: `LocallyAI、LM Studio公式iPhoneアプリ化。LM Link対応`）。"
     "説明調・背景説明は必要な場合だけにしてください。"
 )
-INLINE_SOURCE_LINK_INSTRUCTION = "リンクが必要な箇所は、source の URL を使って文中の重要語句を Markdown リンク `[ラベル](URL)` にしてください。"
+INLINE_SOURCE_LINK_INSTRUCTION = (
+    "リンク可能なニュース箇条書きは必ず 1 つ以上、source の URL を使って"
+    "文中の重要語句を Markdown リンク `[ラベル](URL)` にしてください"
+    "（source URL がない予定・ローカル記録だけリンク不要）。"
+)
+PRESERVE_INLINE_SOURCE_LINKS_INSTRUCTION = "統合・短縮時も既存の Markdown リンクを消さず、リンク先 URL を別 URL に置き換えないでください。"
 NO_URL_LIST_INSTRUCTION = "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。"
+MARKDOWN_INLINE_LINK_RE = re.compile(r"\[[^\]]+\]\((https?://[^)\s]+)\)")
 
 
 class CodexCliSummarizer:
@@ -57,6 +63,7 @@ class CodexCliSummarizer:
             for category, category_items in category_groups.items():
                 chunks = _chunk_items([dict(item) for item in category_items], MAX_PROMPT_RAW_ITEMS)
                 for chunk_index, chunk in enumerate(chunks, start=1):
+                    source_context = _source_link_context_from_items(chunk)
                     prompt = build_codex_digest_prompt(
                         archive_directory,
                         json.dumps(chunk, ensure_ascii=False),
@@ -68,13 +75,27 @@ class CodexCliSummarizer:
                         chunk_total=len(chunks),
                         category=category,
                     )
-                    partial_summaries.append(self._invocation.run(prompt, cwd=codex_context))
+                    partial_summaries.append(
+                        _run_prompt_requiring_inline_source_links(
+                            self._invocation,
+                            prompt,
+                            cwd=codex_context,
+                            source_context=source_context,
+                            previous_output_label="カテゴリ要約",
+                        )
+                    )
             merge_prompt = build_codex_merge_prompt(
                 partial_summaries,
                 summary_format=self._summary_format,
                 digest_command=self._digest_command,
             )
-            content = self._invocation.run(merge_prompt, cwd=codex_context)
+            content = _run_prompt_requiring_inline_source_links(
+                self._invocation,
+                merge_prompt,
+                cwd=codex_context,
+                source_context=_source_link_context_from_markdown("\n".join(partial_summaries)),
+                previous_output_label="最終要約",
+            )
 
         output_path = archive_directory / CODEX_DIGEST_RELATIVE_PATH
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,6 +148,105 @@ class CodexCliInvocation:
             if completed.returncode != 0:
                 raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or "codex exec failed")
             return Path(output_file.name).read_text()
+
+
+def _run_prompt_requiring_inline_source_links(
+    invocation: CodexInvocation,
+    prompt: str,
+    *,
+    cwd: Path,
+    source_context: list[dict[str, str]],
+    previous_output_label: str,
+) -> str:
+    output = invocation.run(prompt, cwd=cwd)
+    if _has_required_inline_source_link(output, source_context):
+        return output
+    repair_prompt = build_codex_inline_link_repair_prompt(
+        previous_output=output,
+        source_context=source_context,
+        previous_output_label=previous_output_label,
+    )
+    repaired_output = invocation.run(repair_prompt, cwd=cwd)
+    if _has_required_inline_source_link(repaired_output, source_context):
+        return repaired_output
+    raise RuntimeError(f"Codex {previous_output_label} lacks required inline source Markdown links after repair")
+
+
+def build_codex_inline_link_repair_prompt(
+    *,
+    previous_output: str,
+    source_context: list[dict[str, str]],
+    previous_output_label: str,
+) -> str:
+    lines = [
+        "あなたは Hermes Pulse の Markdown 要約修正担当です。",
+        f"前回の{previous_output_label}には、source URL を使った Markdown インラインリンクが不足しています。",
+        "新しい事実は追加せず、前回出力の文言とカテゴリ構造を極力維持してください。",
+        INLINE_SOURCE_LINK_INSTRUCTION,
+        PRESERVE_INLINE_SOURCE_LINKS_INSTRUCTION,
+        NO_URL_LIST_INSTRUCTION,
+        "リンク可能な各ニュース箇条書きに、下記 source context の URL を使った `[重要語句](URL)` を最低 1 つ入れてください。",
+        "source context に対応 URL が見当たらない予定・ローカル記録だけはリンクなしで構いません。",
+        "出力は修正版 Markdown のみ。前置きや説明は不要です。",
+        "",
+        "## source context",
+        "```json",
+        json.dumps(source_context, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        f"## 前回の{previous_output_label}",
+        previous_output.rstrip(),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _has_required_inline_source_link(markdown: str, source_context: list[dict[str, str]]) -> bool:
+    expected_urls = {entry.get("url", "") for entry in source_context if entry.get("url")}
+    if not expected_urls:
+        return True
+    actual_urls = set(_extract_markdown_link_urls(markdown))
+    return bool(expected_urls & actual_urls)
+
+
+def _extract_markdown_link_urls(markdown: str) -> list[str]:
+    return [match.group(1) for match in MARKDOWN_INLINE_LINK_RE.finditer(markdown)]
+
+
+def _source_link_context_from_items(items: list[dict[str, object]]) -> list[dict[str, str]]:
+    context: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for item in items:
+        url = item.get("url")
+        if not isinstance(url, str) or not _is_http_url(url) or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        entry = {"url": url}
+        title = _truncate_text(item.get("title"))
+        excerpt = _truncate_text(item.get("excerpt"), max_length=180)
+        if title:
+            entry["title"] = title
+        if excerpt:
+            entry["excerpt"] = excerpt
+        context.append(entry)
+    return context
+
+
+def _source_link_context_from_markdown(markdown: str) -> list[dict[str, str]]:
+    context: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for match in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", markdown):
+        label = match.group(1)
+        url = match.group(2)
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        context.append({"label": label, "url": url})
+    return context
+
+
+def _is_http_url(value: str) -> bool:
+    return value.startswith("https://") or value.startswith("http://")
 
 
 def build_codex_digest_prompt(
@@ -201,6 +321,7 @@ def build_codex_merge_prompt(
         "同じ会社・組織に関する話題は、上のサービス単位の整理を優先したうえで必要に応じて補助的にまとめてください。",
         "自動車・EV関連の重要な製品動向、充電、電池、ソフトウェア更新も通常の主要トピック候補として扱ってください。",
         "エンタメ・芸能・作品紹介そのものは原則として主要トピックに含めないでください。",
+        PRESERVE_INLINE_SOURCE_LINKS_INSTRUCTION,
         "",
         *build_categorized_summary_format_instructions(summary_format, digest_command=digest_command),
         "",

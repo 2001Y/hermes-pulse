@@ -42,14 +42,14 @@ def test_codex_cli_summarizer_builds_grounded_prompt_and_writes_canonical_digest
         "# Morning Digest\n\n- [Launch update](https://example.com/posts/launch-update)\n"
     )
 
-    invocation = StubCodexInvocation("# Codex Digest\n\n- 日本語の要約\n")
+    invocation = StubCodexInvocation("# Codex Digest\n\n- [日本語の要約](https://example.com/posts/launch-update)\n")
     summarizer = CodexCliSummarizer(invocation=invocation)
 
     artifact = summarizer.summarize_archive(archive_directory)
 
     assert artifact == SummaryArtifact(
         path=archive_directory / "summary" / "codex-digest.md",
-        content="# Codex Digest\n\n- 日本語の要約\n",
+        content="# Codex Digest\n\n- [日本語の要約](https://example.com/posts/launch-update)\n",
     )
     assert artifact.path.exists()
     assert artifact.path.read_text() == artifact.content
@@ -99,7 +99,7 @@ def test_codex_cli_summarizer_compacts_large_raw_items_before_prompting(tmp_path
     ]
     (raw_directory / "collected-items.json").write_text(json.dumps(raw_items, indent=2) + "\n")
 
-    invocation = StubCodexInvocation("# Codex Digest\n")
+    invocation = StubCodexInvocation("# Codex Digest\n\n- [Launch update](https://example.com/posts/launch-update)\n")
     summarizer = CodexCliSummarizer(invocation=invocation)
 
     summarizer.summarize_archive(archive_directory)
@@ -137,17 +137,23 @@ def test_codex_cli_summarizer_splits_large_archives_into_chunk_prompts_and_merge
         def run(self, prompt: str, *, cwd: Path) -> str:
             self.calls.append({"prompt": prompt, "cwd": cwd})
             if len(self.calls) == 1:
-                return "chunk-one"
+                return "chunk-one [Title 0](https://example.com/0)"
             if len(self.calls) == 2:
-                return "chunk-two"
-            return "merged-final"
+                return "chunk-two [Title 50](https://example.com/50)"
+            if len(self.calls) == 3:
+                return "chunk-three [Title 100](https://example.com/100)"
+            if len(self.calls) == 4:
+                return "chunk-four [Title 150](https://example.com/150)"
+            if len(self.calls) == 5:
+                return "chunk-five [Title 200](https://example.com/200)"
+            return "merged-final [Title 0](https://example.com/0)"
 
     invocation = MultiResponseInvocation()
     summarizer = CodexCliSummarizer(invocation=invocation)
 
     artifact = summarizer.summarize_archive(archive_directory)
 
-    assert artifact.content == "merged-final"
+    assert artifact.content == "merged-final [Title 0](https://example.com/0)"
     assert len(invocation.calls) == 6
     assert "chunk-one" in invocation.calls[5]["prompt"]
     assert "chunk-two" in invocation.calls[5]["prompt"]
@@ -180,15 +186,25 @@ def test_codex_cli_summarizer_uses_smaller_chunk_size_for_large_archives(tmp_pat
 
         def run(self, prompt: str, *, cwd: Path) -> str:
             self.calls.append({"prompt": prompt, "cwd": cwd})
-            return f"response-{len(self.calls)}"
+            if len(self.calls) == 1:
+                return "response-1 [Title 0](https://example.com/0)"
+            if len(self.calls) == 2:
+                return "response-2 [Title 40](https://example.com/40)"
+            if len(self.calls) == 3:
+                return "response-3 [Title 80](https://example.com/80)"
+            return "response-4 [Title 0](https://example.com/0)"
 
     invocation = MultiResponseInvocation()
     summarizer = CodexCliSummarizer(invocation=invocation)
 
     artifact = summarizer.summarize_archive(archive_directory)
 
-    assert artifact.partial_contents == ["response-1", "response-2", "response-3"]
-    assert artifact.content == "response-4"
+    assert artifact.partial_contents == [
+        "response-1 [Title 0](https://example.com/0)",
+        "response-2 [Title 40](https://example.com/40)",
+        "response-3 [Title 80](https://example.com/80)",
+    ]
+    assert artifact.content == "response-4 [Title 0](https://example.com/0)"
     assert len(invocation.calls) == 4
     assert '"title": "Title 39"' in invocation.calls[0]["prompt"]
     assert '"title": "Title 40"' not in invocation.calls[0]["prompt"]

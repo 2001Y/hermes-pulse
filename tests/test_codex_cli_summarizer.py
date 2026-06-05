@@ -64,8 +64,93 @@ def test_summary_prompt_layers_require_source_url_inline_markdown_links() -> Non
         joined = "\n".join(instructions)
         assert "source の URL を使って" in joined
         assert "文中の重要語句を Markdown リンク" in joined
+        assert "リンク可能なニュース箇条書きは必ず" in joined
         assert "URL を文末に列挙しない" in joined
         assert "1 項目を複数行に分けない" in joined
+
+
+def test_codex_cli_summarizer_repairs_linkless_category_summary_at_summary_time(tmp_path: Path) -> None:
+    archive_directory = tmp_path / "archive"
+    raw_directory = archive_directory / "raw"
+    raw_directory.mkdir(parents=True)
+    (raw_directory / "collected-items.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "ai-1",
+                    "source": "google-news-ai",
+                    "title": "Anthropic、『AI料金ショック』で成長鈍化懸念",
+                    "excerpt": "AnthropicのAI料金ショックが利用企業のコスト増につながっている。",
+                    "url": "https://example.com/anthropic-pricing",
+                    "metadata": {"category_hint": "ai"},
+                }
+            ],
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    prompts: list[str] = []
+
+    class LinkRepairInvocation:
+        def run(self, prompt: str, *, cwd: Path) -> str:
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return "▫ AI\n- Anthropic、AI料金ショックで成長鈍化懸念\n"
+            if len(prompts) == 2:
+                assert "前回のカテゴリ要約" in prompt
+                assert "https://example.com/anthropic-pricing" in prompt
+                return "▫ AI\n- Anthropic、[AI料金ショック](https://example.com/anthropic-pricing)で成長鈍化懸念\n"
+            if len(prompts) == 3:
+                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- Anthropic、[AI料金ショック](https://example.com/anthropic-pricing)で成長鈍化懸念\n"
+            raise AssertionError(prompt)
+
+    artifact = CodexCliSummarizer(invocation=LinkRepairInvocation()).summarize_archive(archive_directory)
+
+    assert len(prompts) == 3
+    assert artifact.partial_contents is None
+    assert "[AI料金ショック](https://example.com/anthropic-pricing)" in artifact.content
+    assert artifact.path.read_text() == artifact.content
+
+
+def test_codex_cli_summarizer_repairs_final_merge_when_it_strips_markdown_links(tmp_path: Path) -> None:
+    archive_directory = tmp_path / "archive"
+    raw_directory = archive_directory / "raw"
+    raw_directory.mkdir(parents=True)
+    (raw_directory / "collected-items.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "ai-1",
+                    "source": "google-news-ai",
+                    "title": "Anthropic、『AI料金ショック』で成長鈍化懸念",
+                    "url": "https://example.com/anthropic-pricing",
+                    "metadata": {"category_hint": "ai"},
+                }
+            ],
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    prompts: list[str] = []
+
+    class MergeRepairInvocation:
+        def run(self, prompt: str, *, cwd: Path) -> str:
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return "▫ AI\n- Anthropic、[AI料金ショック](https://example.com/anthropic-pricing)で成長鈍化懸念\n"
+            if len(prompts) == 2:
+                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- Anthropic、AI料金ショックで成長鈍化懸念\n"
+            if len(prompts) == 3:
+                assert "前回の最終要約" in prompt
+                assert "https://example.com/anthropic-pricing" in prompt
+                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- Anthropic、[AI料金ショック](https://example.com/anthropic-pricing)で成長鈍化懸念\n"
+            raise AssertionError(prompt)
+
+    artifact = CodexCliSummarizer(invocation=MergeRepairInvocation()).summarize_archive(archive_directory)
+
+    assert len(prompts) == 3
+    assert "[AI料金ショック](https://example.com/anthropic-pricing)" in artifact.content
+    assert artifact.path.read_text() == artifact.content
 
 
 def test_summary_prompt_layers_request_news_headline_length() -> None:
@@ -440,11 +525,17 @@ def test_codex_cli_summarizer_runs_category_prompts_before_final_merge(tmp_path:
         def run(self, prompt: str, *, cwd: Path) -> str:
             prompts.append(prompt)
             if "最終編集担当" in prompt:
-                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- AI summary\n\n▫ カメラ\n- Camera summary\n"
+                return (
+                    "☀ *Hermes Pulse Morning Briefing*\n\n"
+                    "▫ AI\n"
+                    "- [AI summary](https://example.com/ai)\n\n"
+                    "▫ カメラ\n"
+                    "- [Camera summary](https://example.com/camera)\n"
+                )
             if "大カテゴリ `AI`" in prompt:
-                return "▫ AI\n- AI summary\n"
+                return "▫ AI\n- [AI summary](https://example.com/ai)\n"
             if "大カテゴリ `カメラ`" in prompt:
-                return "▫ カメラ\n- Camera summary\n"
+                return "▫ カメラ\n- [Camera summary](https://example.com/camera)\n"
             raise AssertionError(prompt)
 
     artifact = CodexCliSummarizer(invocation=RecordingInvocation()).summarize_archive(archive_directory)
@@ -485,9 +576,9 @@ def test_codex_cli_summarizer_runs_final_merge_even_for_single_category(tmp_path
         def run(self, prompt: str, *, cwd: Path) -> str:
             prompts.append(prompt)
             if "最終編集担当" in prompt:
-                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- AI summary\n"
+                return "☀ *Hermes Pulse Morning Briefing*\n\n▫ AI\n- [AI summary](https://example.com/ai)\n"
             if "大カテゴリ `AI`" in prompt:
-                return "▫ AI\n- AI summary\n"
+                return "▫ AI\n- [AI summary](https://example.com/ai)\n"
             raise AssertionError(prompt)
 
     artifact = CodexCliSummarizer(invocation=RecordingInvocation()).summarize_archive(archive_directory)
