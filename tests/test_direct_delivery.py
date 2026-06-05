@@ -305,7 +305,7 @@ def test_post_canonical_digest_to_slack_does_not_rewrite_unlinked_bullets_from_r
     assert result.content == digest_path.read_text()
 
 
-def test_post_canonical_digest_to_slack_splits_oversized_digest_into_top_level_posts(tmp_path: Path) -> None:
+def test_post_canonical_digest_to_slack_splits_oversized_digest_into_parent_with_thread_replies(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"
     digest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -349,7 +349,10 @@ def test_post_canonical_digest_to_slack_splits_oversized_digest_into_top_level_p
     )
 
     assert len(calls) >= 2
-    assert all(call["thread_ts"] is None for call in calls)
+    assert calls[0]["thread_ts"] is None
+    parent_ts = result.slack_responses[0]["ts"]
+    assert parent_ts == "1712345.671"
+    assert all(call["thread_ts"] == parent_ts for call in calls[1:])
     assert all("[Link" not in call["text"] for call in calls)
     assert all("<https://example.com/" in call["text"] or "- なし" in call["text"] for call in calls)
     assert all("xxxxxxxxxx" in call["text"] or "- なし" in call["text"] or "☀ *Hermes Pulse Morning Briefing*" in call["text"] for call in calls)
@@ -575,7 +578,9 @@ def test_post_canonical_digest_to_slack_splits_only_combined_summary_when_partia
     )
 
     assert len(calls) >= 2
-    assert all(call["thread_ts"] is None for call in calls)
+    assert calls[0]["thread_ts"] is None
+    parent_ts = result.slack_responses[0]["ts"]
+    assert all(call["thread_ts"] == parent_ts for call in calls[1:])
     assert all("Part 1" not in call["text"] for call in calls)
     assert all("Part 2" not in call["text"] for call in calls)
     assert all("Combined" in call["text"] for call in calls)

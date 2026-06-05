@@ -481,17 +481,27 @@ def _post_slack_chunks(
     thread_ts: str | None,
 ) -> list[Any]:
     responses: list[Any] = []
+    continuation_thread_ts = thread_ts
     for index, chunk in enumerate(chunks):
         response = poster(
             chunk,
             channel,
-            thread_ts=thread_ts,
+            thread_ts=continuation_thread_ts,
             unfurl_links=False,
             unfurl_media=False,
             blocks=blocks_per_chunk[index],
         )
         responses.append(response)
+        if index == 0 and continuation_thread_ts is None:
+            continuation_thread_ts = _slack_response_ts(response)
     return responses
+
+
+def _slack_response_ts(response: Any) -> str | None:
+    if isinstance(response, dict):
+        ts = response.get("ts")
+        return ts if isinstance(ts, str) and ts else None
+    return None
 
 
 if __name__ == "__main__":
