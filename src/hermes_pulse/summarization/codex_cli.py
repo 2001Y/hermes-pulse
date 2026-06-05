@@ -23,6 +23,8 @@ HEADLINE_STYLE_INSTRUCTION = (
     "（例: `LocallyAI、LM Studio公式iPhoneアプリ化。LM Link対応`）。"
     "説明調・背景説明は必要な場合だけにしてください。"
 )
+INLINE_SOURCE_LINK_INSTRUCTION = "リンクが必要な箇所は、source の URL を使って文中の重要語句を Markdown リンク `[ラベル](URL)` にしてください。"
+NO_URL_LIST_INSTRUCTION = "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。"
 
 
 class CodexCliSummarizer:
@@ -230,9 +232,10 @@ def build_category_summary_format_instructions(category_heading: str) -> list[st
         "出力フォーマットはカテゴリ部分要約を厳守してください。",
         f"先頭行は必ず `▫ {category_heading}` にしてください。全体タイトルは書かないでください。",
         "その下に必要な件数だけ箇条書きしてください。各項目は 1 行で要点→必要なら文中リンク。",
+        "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
         HEADLINE_STYLE_INSTRUCTION,
-        "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
-        "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
+        INLINE_SOURCE_LINK_INSTRUCTION,
+        NO_URL_LIST_INSTRUCTION,
         "当日または近い日時の予定・期限だけは `▫ スケジュール` カテゴリで扱い、他カテゴリでは本文の補足に留めてください。",
     ]
 
@@ -248,8 +251,8 @@ def build_categorized_summary_format_instructions(summary_format: str, *, digest
             "各カテゴリの下は必要な件数だけ箇条書きにし、重要事項の取りこぼしを避けてください。",
             "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
             HEADLINE_STYLE_INSTRUCTION,
-            "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
-            "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
+            INLINE_SOURCE_LINK_INSTRUCTION,
+            NO_URL_LIST_INSTRUCTION,
         ]
     raise ValueError(f"Unsupported summary format: {summary_format}")
 
@@ -260,8 +263,8 @@ def build_summary_format_instructions(summary_format: str, *, digest_command: st
         return [
             "出力フォーマットは briefing-v1 を厳守してください。",
             f"見出しはこの順番で固定してください: `{title}` / `▫ 主要トピック` / `{schedule_heading}`。",
-            "リンクが必要な箇所は、該当する語句を Markdown リンク `[ラベル](URL)` として文中に埋め込んでください。",
-            "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。",
+            INLINE_SOURCE_LINK_INSTRUCTION,
+            NO_URL_LIST_INSTRUCTION,
             "`▫ 主要トピック` は必要な件数だけ箇条書きにしてよい。重要事項の取りこぼしを避け、各項目は 1 行で要点→必要なら文中リンク。",
             "各箇条書き項目は 1 つの完結した短い行として書き、1 項目を複数行に分けないでください。",
             HEADLINE_STYLE_INSTRUCTION,

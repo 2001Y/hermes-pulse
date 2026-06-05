@@ -4,16 +4,18 @@ import inspect
 import json
 import re
 import time
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from typing import Any, Protocol
 
 from hermes_pulse.archive import write_morning_digest_archive
 from hermes_pulse.cli import _archive_label_for_args, _apply_replay_window_if_requested, _build_digest_with_source_errors, _occurred_at_for_command
 from hermes_pulse.summarization import CodexCliSummarizer
-from hermes_pulse.summarization.base import CODEX_DIGEST_RELATIVE_PATH, SummaryArtifact
+from hermes_pulse.summarization.base import CODEX_DIGEST_RELATIVE_PATH, RAW_ITEMS_RELATIVE_PATH, SummaryArtifact
 from hermes_pulse.summarization.codex_cli import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_SUMMARY_FORMAT,
@@ -25,7 +27,23 @@ DEFAULT_SLACK_DIRECT_PATH = Path.home() / ".hermes" / "scripts" / "slack_direct.
 DEFAULT_SLACK_MESSAGE_LIMIT = 3500
 DEFAULT_RETRY_DELAYS_SECONDS = (300, 300)
 MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
-CATEGORY_SECTION_HEADING_RE = re.compile(r"(?m)^▫ (?:AI|IT|金融|カメラ|車|スケジュール)\s*$")
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+SIGNIFICANT_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{1,}[A-Za-z0-9]|[一-龯ぁ-んァ-ンー]{3,}")
+AUTOLINK_MIN_SCORE = 0.40
+AUTOLINK_STOPWORDS = {
+    "ai",
+    "it",
+    "ev",
+    "ニュース",
+    "報道",
+    "発表",
+    "発売",
+    "開始",
+    "検討",
+    "更新",
+    "予定",
+    "導入",
+}
 
 
 class SlackPoster(Protocol):
@@ -50,6 +68,15 @@ class DirectDeliveryResult:
     posted_messages: list[str]
     slack_response: Any
     slack_responses: list[Any]
+
+
+@dataclass(frozen=True)
+class _DigestLinkCandidate:
+    url: str
+    text: str
+    normalized_text: str
+    grams: frozenset[str]
+    tokens: frozenset[str]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -270,8 +297,9 @@ def post_canonical_digest_to_slack(
         raise FileNotFoundError(f"Canonical Codex digest artifact is missing: {digest_path}")
 
     content = digest_path.read_text()
+    linked_content = _autolink_digest_markdown_from_archive(content, archive_directory)
     rendered_message = _prepend_grok_fallback_notice_if_needed(
-        _prepend_source_error_notice_if_needed(_render_digest_for_slack(content), archive_directory),
+        _prepend_source_error_notice_if_needed(_render_digest_for_slack(linked_content), archive_directory),
         archive_directory,
     )
     message_chunks = _split_slack_digest_text(rendered_message, limit=slack_message_limit)
@@ -314,6 +342,223 @@ def load_slack_direct_post_message(script_path: str | Path = DEFAULT_SLACK_DIREC
 
 def _render_digest_for_slack(markdown: str) -> str:
     return MARKDOWN_LINK_RE.sub(lambda match: f"<{match.group(2)}|{match.group(1)}>", markdown)
+
+
+def _autolink_digest_markdown_from_archive(markdown: str, archive_directory: Path) -> str:
+    candidates = _load_digest_link_candidates(archive_directory)
+    if not candidates:
+        return markdown
+    lines = [_autolink_digest_line(line, candidates) for line in markdown.splitlines()]
+    trailing_newline = "\n" if markdown.endswith("\n") else ""
+    return "\n".join(lines) + trailing_newline
+
+
+def _load_digest_link_candidates(archive_directory: Path) -> list[_DigestLinkCandidate]:
+    raw_items_path = archive_directory / RAW_ITEMS_RELATIVE_PATH
+    if not raw_items_path.exists():
+        return []
+    try:
+        payload = json.loads(raw_items_path.read_text())
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    candidates: list[_DigestLinkCandidate] = []
+    seen: set[tuple[str, str]] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        for url, text in _iter_link_candidate_values(item):
+            normalized_text = _normalize_for_digest_link_match(text)
+            if not normalized_text:
+                continue
+            key = (url, normalized_text[:240])
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(
+                _DigestLinkCandidate(
+                    url=url,
+                    text=text,
+                    normalized_text=normalized_text,
+                    grams=frozenset(_character_grams(normalized_text)),
+                    tokens=frozenset(_significant_tokens(text)),
+                )
+            )
+    return candidates
+
+
+def _iter_link_candidate_values(item: dict[str, Any]) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+    item_url = item.get("url")
+    item_text = " ".join(
+        part for part in (_plain_text(item.get(field_name)) for field_name in ("title", "excerpt", "body")) if part
+    )
+    if isinstance(item_url, str) and _is_http_url(item_url) and item_text:
+        values.append((item_url, item_text))
+
+    citation_chain = item.get("citation_chain") or []
+    if isinstance(citation_chain, list):
+        for citation in citation_chain:
+            if not isinstance(citation, dict):
+                continue
+            citation_url = citation.get("url")
+            citation_label = _plain_text(citation.get("label"))
+            if isinstance(citation_url, str) and _is_http_url(citation_url) and citation_label:
+                item_title = _plain_text(item.get("title"))
+                values.append((citation_url, " ".join(part for part in (citation_label, item_title) if part)))
+    return values
+
+
+def _autolink_digest_line(line: str, candidates: list[_DigestLinkCandidate]) -> str:
+    stripped = line.lstrip()
+    indentation = line[: len(line) - len(stripped)]
+    if not stripped.startswith("- "):
+        return line
+    if _line_already_has_link(stripped):
+        return line
+
+    bullet_text = stripped[2:]
+    candidate = _best_link_candidate_for_bullet(bullet_text, candidates)
+    if candidate is None:
+        return line
+    anchor = _select_digest_link_anchor(bullet_text, candidate.text)
+    if not anchor:
+        return line
+    return f"{indentation}- {bullet_text.replace(anchor, f'[{anchor}]({candidate.url})', 1)}"
+
+
+def _line_already_has_link(line: str) -> bool:
+    return bool(
+        MARKDOWN_LINK_RE.search(line)
+        or re.search(r"<https?://[^|>]+\|[^>]+>", line)
+        or re.search(r"https?://", line)
+    )
+
+
+def _best_link_candidate_for_bullet(
+    bullet_text: str,
+    candidates: list[_DigestLinkCandidate],
+) -> _DigestLinkCandidate | None:
+    normalized_bullet = _normalize_for_digest_link_match(bullet_text)
+    if not normalized_bullet:
+        return None
+    bullet_grams = _character_grams(normalized_bullet)
+    bullet_tokens = _significant_tokens(bullet_text)
+    best_candidate: _DigestLinkCandidate | None = None
+    best_score = 0.0
+    for candidate in candidates:
+        score = _digest_link_match_score(normalized_bullet, bullet_grams, bullet_tokens, candidate)
+        if score > best_score:
+            best_score = score
+            best_candidate = candidate
+    if best_candidate is None or best_score < AUTOLINK_MIN_SCORE:
+        return None
+    return best_candidate
+
+
+def _digest_link_match_score(
+    normalized_bullet: str,
+    bullet_grams: set[str],
+    bullet_tokens: set[str],
+    candidate: _DigestLinkCandidate,
+) -> float:
+    if not bullet_grams or not candidate.grams:
+        return 0.0
+    candidate_grams = set(candidate.grams)
+    overlap = len(bullet_grams & candidate_grams)
+    score = (2 * overlap) / (len(bullet_grams) + len(candidate_grams))
+    if normalized_bullet in candidate.normalized_text or candidate.normalized_text in normalized_bullet:
+        score = max(score, 0.80)
+    token_overlap = bullet_tokens & set(candidate.tokens)
+    token_bonus = min(0.35, sum(len(token) for token in token_overlap) / 30)
+    return score + token_bonus
+
+
+def _select_digest_link_anchor(bullet_text: str, candidate_text: str) -> str | None:
+    for quoted_phrase in _quoted_phrases(candidate_text):
+        if anchor := _find_original_substring_by_normalized(bullet_text, _normalize_for_digest_link_match(quoted_phrase)):
+            return anchor
+
+    normalized_candidate = _normalize_for_digest_link_match(candidate_text)
+    if not normalized_candidate:
+        return None
+    normalized_bullet = _normalize_for_digest_link_match(bullet_text)
+    if normalized_bullet and normalized_bullet in normalized_candidate and len(bullet_text) <= 40:
+        return bullet_text
+    best_anchor: str | None = None
+    best_normalized_length = 0
+    for segment in re.split(r"[、。:：,，()（）「」『』【】\s]+", bullet_text):
+        if not segment:
+            continue
+        max_width = min(len(segment), 24)
+        for start in range(len(segment)):
+            for end in range(start + 3, min(len(segment), start + max_width) + 1):
+                anchor = segment[start:end]
+                normalized_anchor = _normalize_for_digest_link_match(anchor)
+                if len(normalized_anchor) < 3:
+                    continue
+                if normalized_anchor in normalized_candidate and len(normalized_anchor) > best_normalized_length:
+                    best_anchor = anchor
+                    best_normalized_length = len(normalized_anchor)
+    return best_anchor
+
+
+def _quoted_phrases(text: str) -> list[str]:
+    phrases: list[str] = []
+    for match in re.finditer(r"[『「\"'“‘]([^』」\"'”’]{3,})[』」\"'”’]", text):
+        phrase = match.group(1).strip()
+        if phrase:
+            phrases.append(phrase)
+    return phrases
+
+
+def _find_original_substring_by_normalized(text: str, normalized_needle: str) -> str | None:
+    if len(normalized_needle) < 3:
+        return None
+    for start in range(len(text)):
+        if not _normalize_for_digest_link_match(text[start]):
+            continue
+        for end in range(start + 1, len(text) + 1):
+            if not _normalize_for_digest_link_match(text[end - 1]):
+                continue
+            if _normalize_for_digest_link_match(text[start:end]) == normalized_needle:
+                return text[start:end]
+    return None
+
+
+def _plain_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(unescape(HTML_TAG_RE.sub(" ", value)).split())
+
+
+def _is_http_url(value: object) -> bool:
+    return isinstance(value, str) and (value.startswith("https://") or value.startswith("http://"))
+
+
+def _normalize_for_digest_link_match(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    normalized = re.sub(r"https?://\S+", " ", normalized)
+    normalized = re.sub(r"[\s\-_./|()（）【】「」『』,，、。:：;；!！?？=+&・\[\]<>]+", "", normalized)
+    return normalized
+
+
+def _character_grams(text: str, *, size: int = 2) -> set[str]:
+    if len(text) < size:
+        return {text} if text else set()
+    return {text[index : index + size] for index in range(len(text) - size + 1)}
+
+
+def _significant_tokens(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for token in SIGNIFICANT_TOKEN_RE.findall(text):
+        normalized = unicodedata.normalize("NFKC", token).casefold()
+        if normalized in AUTOLINK_STOPWORDS:
+            continue
+        tokens.add(normalized)
+    return tokens
 
 
 def _build_slack_blocks(markdown: str) -> list[dict[str, Any]]:
@@ -370,7 +615,7 @@ SOURCE_ERRORS_RELATIVE_PATH = Path("metadata/source-errors.json")
 
 
 def _prepend_grok_fallback_notice_if_needed(markdown: str, archive_directory: Path) -> str:
-    raw_items_path = archive_directory / "raw" / "collected-items.json"
+    raw_items_path = archive_directory / RAW_ITEMS_RELATIVE_PATH
     if not raw_items_path.exists():
         return markdown
     try:
@@ -434,32 +679,7 @@ def _extract_x_reset_date(message: str) -> str | None:
 
 
 def _split_slack_digest_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) -> list[str]:
-    categorized_chunks = _split_by_category_sections(text)
-    if categorized_chunks is None:
-        return _split_slack_text(text, limit=limit)
-
-    chunks: list[str] = []
-    for category_chunk in categorized_chunks:
-        chunks.extend(_split_slack_text(category_chunk, limit=limit))
-    return chunks or [text]
-
-
-def _split_by_category_sections(text: str) -> list[str] | None:
-    matches = list(CATEGORY_SECTION_HEADING_RE.finditer(text))
-    if len(matches) < 2:
-        return None
-
-    prefix = text[: matches[0].start()].rstrip()
-    sections: list[str] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        section = text[match.start() : end].strip()
-        if not section:
-            continue
-        if index == 0 and prefix:
-            section = f"{prefix}\n\n{section}"
-        sections.append(section)
-    return sections or None
+    return _split_slack_text(text, limit=limit)
 
 
 def _split_slack_text(text: str, *, limit: int = DEFAULT_SLACK_MESSAGE_LIMIT) -> list[str]:
@@ -507,21 +727,16 @@ def _post_slack_chunks(
     thread_ts: str | None,
 ) -> list[Any]:
     responses: list[Any] = []
-    active_thread_ts = thread_ts
     for index, chunk in enumerate(chunks):
         response = poster(
             chunk,
             channel,
-            thread_ts=active_thread_ts,
+            thread_ts=thread_ts,
             unfurl_links=False,
             unfurl_media=False,
             blocks=blocks_per_chunk[index],
         )
         responses.append(response)
-        if index == 0 and active_thread_ts is None:
-            response_ts = response.get("ts") if isinstance(response, dict) else None
-            if isinstance(response_ts, str) and response_ts:
-                active_thread_ts = response_ts
     return responses
 
 

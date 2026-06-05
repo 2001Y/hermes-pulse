@@ -262,7 +262,50 @@ def test_post_canonical_digest_to_slack_converts_markdown_links_and_bullets_to_s
     assert result.content == digest_path.read_text()
 
 
-def test_post_canonical_digest_to_slack_splits_oversized_digest_into_threaded_posts(tmp_path: Path) -> None:
+def test_post_canonical_digest_to_slack_autolinks_unlinked_bullets_from_raw_items(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    raw_items_path = archive_directory / "raw" / "collected-items.json"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_items_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        "- Anthropic、AI料金ショックで成長鈍化懸念\n"
+    )
+    raw_items_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "news:anthropic-pricing",
+                    "source": "news",
+                    "source_kind": "document",
+                    "title": "Anthropic、『AI料金ショック』で成長鈍化懸念",
+                    "excerpt": "AnthropicのAI料金ショックが利用企業のコスト増につながっている。",
+                    "url": "https://example.com/anthropic-pricing",
+                }
+            ],
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    calls: list[str] = []
+
+    result = direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=lambda text, *_args, **_kwargs: calls.append(text) or {"ok": True, "channel": "C123", "ts": "1"},
+    )
+
+    assert calls == [
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        "- Anthropic、<https://example.com/anthropic-pricing|AI料金ショック>で成長鈍化懸念\n"
+    ]
+    assert result.content == digest_path.read_text()
+
+
+def test_post_canonical_digest_to_slack_splits_oversized_digest_into_top_level_posts(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"
     digest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -306,8 +349,7 @@ def test_post_canonical_digest_to_slack_splits_oversized_digest_into_threaded_po
     )
 
     assert len(calls) >= 2
-    assert calls[0]["thread_ts"] is None
-    assert calls[1]["thread_ts"] == "1712345.671"
+    assert all(call["thread_ts"] is None for call in calls)
     assert all("[Link" not in call["text"] for call in calls)
     assert all("<https://example.com/" in call["text"] or "- なし" in call["text"] for call in calls)
     assert all("xxxxxxxxxx" in call["text"] or "- なし" in call["text"] or "☀ *Hermes Pulse Morning Briefing*" in call["text"] for call in calls)
@@ -533,8 +575,7 @@ def test_post_canonical_digest_to_slack_splits_only_combined_summary_when_partia
     )
 
     assert len(calls) >= 2
-    assert calls[0]["thread_ts"] is None
-    assert calls[1]["thread_ts"] == "1712345.671"
+    assert all(call["thread_ts"] is None for call in calls)
     assert all("Part 1" not in call["text"] for call in calls)
     assert all("Part 2" not in call["text"] for call in calls)
     assert all("Combined" in call["text"] for call in calls)
@@ -896,7 +937,7 @@ def test_summarize_archive_with_retries_preserves_original_error_when_metadata_w
         )
 
 
-def test_post_canonical_digest_to_slack_splits_categorized_digest_by_category_sections(tmp_path: Path) -> None:
+def test_post_canonical_digest_to_slack_keeps_categorized_digest_in_single_post_when_under_limit(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"
     digest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -932,17 +973,15 @@ def test_post_canonical_digest_to_slack_splits_categorized_digest_by_category_se
         slack_message_limit=3500,
     )
 
-    assert [call["text"].splitlines()[0] for call in calls] == [
-        "☀ *Hermes Pulse Morning Briefing*",
-        "▫ IT",
-        "▫ 金融",
-        "▫ スケジュール",
-    ]
-    assert "▫ AI" in calls[0]["text"]
-    assert "▫ IT" not in calls[0]["text"]
-    assert "<https://example.com/ai|OpenAI update>" in calls[0]["text"]
+    assert len(calls) == 1
+    text = str(calls[0]["text"])
+    assert text.startswith("☀ *Hermes Pulse Morning Briefing*")
+    assert "▫ AI" in text
+    assert "▫ IT" in text
+    assert "▫ 金融" in text
+    assert "▫ スケジュール" in text
+    assert "<https://example.com/ai|OpenAI update>" in text
     assert calls[0]["thread_ts"] is None
-    assert [call["thread_ts"] for call in calls[1:]] == ["1712345.671", "1712345.671", "1712345.671"]
     assert result.posted_messages == [call["text"] for call in calls]
 
 

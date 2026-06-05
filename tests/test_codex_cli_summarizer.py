@@ -52,12 +52,20 @@ def test_build_codex_digest_prompt_limits_embedded_raw_items_and_reports_omissio
     assert '"omitted_from_prompt": 200' in prompt
 
 
-def test_build_summary_format_instructions_requires_inline_markdown_links_in_briefing_v1() -> None:
-    instructions = build_summary_format_instructions("briefing-v1")
+def test_summary_prompt_layers_require_source_url_inline_markdown_links() -> None:
+    instruction_sets = [
+        build_summary_format_instructions("briefing-v1"),
+        build_category_summary_format_instructions("AI"),
+        build_categorized_summary_format_instructions("briefing-v1"),
+        build_codex_merge_prompt(["▫ AI\n- Anthropic、AI料金ショックで成長鈍化懸念"]).splitlines(),
+    ]
 
-    assert any("文中" in line and "Markdown リンク" in line for line in instructions)
-    assert any("URL を文末に列挙しない" in line for line in instructions)
-    assert any("1 項目を複数行に分けない" in line for line in instructions)
+    for instructions in instruction_sets:
+        joined = "\n".join(instructions)
+        assert "source の URL を使って" in joined
+        assert "文中の重要語句を Markdown リンク" in joined
+        assert "URL を文末に列挙しない" in joined
+        assert "1 項目を複数行に分けない" in joined
 
 
 def test_summary_prompt_layers_request_news_headline_length() -> None:
