@@ -32,6 +32,13 @@ class DirectDeliveryWrapperSpec:
     hermes_history: Path | None = None
     notes: Path | None = None
     x_signals: str | None = None
+    x_browser_signals: str | None = None
+    x_browser_profile_root: Path | None = None
+    x_browser_profile_directory: str = "Profile 4"
+    x_browser_handle: str | None = None
+    x_browser_limit: int = 20
+    chrome_user_data_dir: Path | None = None
+    chrome_profile_directory: str = "Profile 4"
     codex_model: str = DEFAULT_CODEX_MODEL
     summary_format: str = DEFAULT_SUMMARY_FORMAT
     working_directory: Path | None = None
@@ -118,8 +125,27 @@ def build_direct_delivery_program_arguments(spec: DirectDeliveryWrapperSpec) -> 
         args.extend(["--hermes-history", str(spec.hermes_history)])
     if spec.notes is not None:
         args.extend(["--notes", str(spec.notes)])
+    if spec.x_signals is not None and spec.x_browser_signals is not None:
+        raise ValueError("Use either x_signals or x_browser_signals, not both")
     if spec.x_signals is not None:
         args.extend(["--x-signals", spec.x_signals])
+    if spec.x_browser_signals is not None:
+        if spec.x_browser_profile_root is None or spec.x_browser_handle is None:
+            raise ValueError("x_browser_signals requires x_browser_profile_root and x_browser_handle")
+        args.extend(
+            [
+                "--x-browser-signals",
+                spec.x_browser_signals,
+                "--x-browser-profile-root",
+                str(spec.x_browser_profile_root),
+                "--x-browser-profile-directory",
+                spec.x_browser_profile_directory,
+                "--x-browser-handle",
+                spec.x_browser_handle,
+                "--x-browser-limit",
+                str(spec.x_browser_limit),
+            ]
+        )
     args.extend(["--codex-model", spec.codex_model, "--summary-format", spec.summary_format])
     return args
 
@@ -222,6 +248,32 @@ def render_direct_delivery_wrapper(spec: DirectDeliveryWrapperSpec) -> str:
                 warning_message="warning: X OAuth2 refresh failed; digest will continue without X signals",
             )
         )
+    if spec.x_browser_signals is not None:
+        if spec.chrome_user_data_dir is None or spec.x_browser_profile_root is None:
+            raise ValueError("x_browser_signals requires chrome_user_data_dir and x_browser_profile_root")
+        refresh_x_browser_args = [
+            str(spec.python_executable),
+            "-m",
+            "hermes_pulse.cli",
+            "refresh-x-browser-profile",
+            "--chrome-user-data-dir",
+            str(spec.chrome_user_data_dir),
+            "--chrome-profile-directory",
+            spec.chrome_profile_directory,
+            "--x-browser-profile-root",
+            str(spec.x_browser_profile_root),
+            "--x-browser-profile-directory",
+            spec.x_browser_profile_directory,
+        ]
+        refresh_commands.append(
+            _render_optional_refresh_command(
+                " ".join(shlex.quote(argument) for argument in refresh_x_browser_args),
+                warning_message=(
+                    "warning: X browser profile refresh failed; "
+                    "digest will continue with existing browser profile"
+                ),
+            )
+        )
     shared_env_path = spec.shared_env_path
     shared_env_reference = (
         f"~/{shared_env_path.relative_to(Path.home())}"
@@ -230,17 +282,8 @@ def render_direct_delivery_wrapper(spec: DirectDeliveryWrapperSpec) -> str:
     )
     shared_env_shell = shared_env_reference if shared_env_reference.startswith("~/") else shlex.quote(shared_env_reference)
     xurl_app_name = shlex.quote(spec.xurl_app_name)
-    return "\n".join(
+    xurl_bootstrap_lines = (
         [
-            "#!/bin/zsh",
-            "set -euo pipefail",
-            "",
-            f"export PATH={DEFAULT_LAUNCHD_PATH}",
-            f"export PYTHONPATH={shlex.quote(str(python_path_root))}\"${{PYTHONPATH:+:$PYTHONPATH}}\"",
-            "",
-            f'if [ -f {shared_env_shell} ]; then',
-            f'  source {shared_env_shell}',
-            "fi",
             'if [ -n "${X_CLIENT_ID:-}" ] && [ -n "${X_CLIENT_SECRET:-}" ]; then',
             f'  if ! xurl auth apps add {xurl_app_name} --client-id "$X_CLIENT_ID" --client-secret "$X_CLIENT_SECRET" >/dev/null 2>&1; then',
             f'    xurl auth apps update {xurl_app_name} --client-id "$X_CLIENT_ID" --client-secret "$X_CLIENT_SECRET" >/dev/null 2>&1',
@@ -252,6 +295,22 @@ def render_direct_delivery_wrapper(spec: DirectDeliveryWrapperSpec) -> str:
             "  fi",
             "fi",
             "",
+        ]
+        if spec.x_signals is not None
+        else []
+    )
+    return "\n".join(
+        [
+            "#!/bin/zsh",
+            "set -euo pipefail",
+            "",
+            f"export PATH={DEFAULT_LAUNCHD_PATH}",
+            f"export PYTHONPATH={shlex.quote(str(python_path_root))}\"${{PYTHONPATH:+:$PYTHONPATH}}\"",
+            "",
+            f'if [ -f {shared_env_shell} ]; then',
+            f'  source {shared_env_shell}',
+            "fi",
+            *xurl_bootstrap_lines,
             f"cd {shlex.quote(str(working_directory))}",
             *refresh_commands,
             f"exec {command}",

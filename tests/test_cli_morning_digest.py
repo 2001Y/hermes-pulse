@@ -343,6 +343,26 @@ def test_cli_parser_uses_hermes_pulse_program_name() -> None:
 
     assert parser.prog == "hermes-pulse"
     assert parser.parse_args(["morning-digest", "--x-signals", "bookmarks,likes"]).x_signals == "bookmarks,likes"
+    browser_args = parser.parse_args(
+        [
+            "morning-digest",
+            "--x-browser-signals",
+            "likes,home_timeline_reverse_chronological",
+            "--x-browser-profile-root",
+            "/Users/akitani/.hermes/browser/x-pulse-profile",
+            "--x-browser-profile-directory",
+            "Profile 4",
+            "--x-browser-handle",
+            "Y20010920T",
+            "--x-browser-limit",
+            "20",
+        ]
+    )
+    assert browser_args.x_browser_signals == "likes,home_timeline_reverse_chronological"
+    assert browser_args.x_browser_profile_root == Path("/Users/akitani/.hermes/browser/x-pulse-profile")
+    assert browser_args.x_browser_profile_directory == "Profile 4"
+    assert browser_args.x_browser_handle == "Y20010920T"
+    assert browser_args.x_browser_limit == 20
     assert parser.parse_args(["refresh-grok-history", "--output-dir", str(tmp_path := ROOT)]).command == "refresh-grok-history"
     assert parser.parse_args(["refresh-chatgpt-history", "--input-dir", str(tmp_path)]).command == "refresh-chatgpt-history"
     assert parser.parse_args(["morning-digest", "--chatgpt-history", str(CHATGPT_HISTORY_PATH)]).chatgpt_history == CHATGPT_HISTORY_PATH
@@ -446,3 +466,117 @@ def test_morning_digest_collects_configured_x_signals(monkeypatch, tmp_path: Pat
 
     assert xurl_calls == [{"signal_types": ["bookmarks", "likes"]}]
     assert "Saved launch thread" in output_path.read_text()
+
+
+def test_morning_digest_collects_x_signals_from_authenticated_browser(monkeypatch, tmp_path: Path) -> None:
+    browser_calls: list[dict[str, object]] = []
+    _install_stub_codex_summarizer(monkeypatch)
+
+    class FakeXBrowserConnector:
+        def __init__(self, **kwargs):
+            browser_calls.append({"constructor": kwargs})
+
+        def collect(self, signal_types: list[str]):
+            browser_calls.append({"signal_types": signal_types})
+            return [
+                CollectedItem(
+                    id="x-likes:tweet-browser-1",
+                    source="x_likes",
+                    source_kind="post",
+                    title="Browser-collected liked post",
+                    excerpt="Collected from the authenticated X web UI.",
+                    url="https://x.com/example/status/2",
+                    timestamps=ItemTimestamps(created_at="2026-07-14T00:00:00Z"),
+                    provenance=Provenance(
+                        provider="x.com",
+                        acquisition_mode="browser_automation_experimental",
+                        authority_tier="primary",
+                        primary_source_url="https://x.com/example/status/2",
+                        raw_record_id="2",
+                    ),
+                    citation_chain=[
+                        CitationLink(
+                            label="Browser-collected liked post",
+                            url="https://x.com/example/status/2",
+                            relation="primary",
+                        )
+                    ],
+                )
+            ]
+
+    monkeypatch.setattr(hermes_pulse.cli, "XBrowserConnector", FakeXBrowserConnector)
+    output_path = tmp_path / "deliveries" / "morning-browser-x.md"
+    profile_root = tmp_path / "x-browser-profile"
+
+    assert (
+        hermes_pulse.cli.main(
+            [
+                "morning-digest",
+                "--source-registry",
+                str(SOURCE_REGISTRY_PATH),
+                "--x-browser-signals",
+                "likes,home_timeline_reverse_chronological",
+                "--x-browser-profile-root",
+                str(profile_root),
+                "--x-browser-profile-directory",
+                "Profile 4",
+                "--x-browser-handle",
+                "Y20010920T",
+                "--x-browser-limit",
+                "20",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+
+    assert browser_calls == [
+        {
+            "constructor": {
+                "profile_root": profile_root,
+                "profile_directory": "Profile 4",
+                "expected_handle": "Y20010920T",
+                "limit": 20,
+            }
+        },
+        {"signal_types": ["likes", "home_timeline_reverse_chronological"]},
+    ]
+    assert "Browser-collected liked post" in output_path.read_text()
+
+
+def test_refresh_x_browser_profile_command_copies_logged_in_profile_metadata(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+    source_root = tmp_path / "Chrome"
+    destination_root = tmp_path / "x-pulse-profile"
+
+    def fake_refresh(**kwargs):
+        calls.append(kwargs)
+        return destination_root / "Profile 4"
+
+    monkeypatch.setattr(hermes_pulse.cli, "refresh_x_browser_profile", fake_refresh)
+
+    assert (
+        hermes_pulse.cli.main(
+            [
+                "refresh-x-browser-profile",
+                "--chrome-user-data-dir",
+                str(source_root),
+                "--chrome-profile-directory",
+                "Profile 4",
+                "--x-browser-profile-root",
+                str(destination_root),
+                "--x-browser-profile-directory",
+                "Profile 4",
+            ]
+        )
+        == 0
+    )
+    assert calls == [
+        {
+            "source_user_data_dir": source_root,
+            "source_profile_directory": "Profile 4",
+            "destination_user_data_dir": destination_root,
+            "destination_profile_directory": "Profile 4",
+        }
+    ]

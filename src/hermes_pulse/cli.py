@@ -23,6 +23,7 @@ from hermes_pulse.connectors.hermes_history import HermesHistoryConnector
 from hermes_pulse.connectors.known_source_search import KnownSourceSearchConnector
 from hermes_pulse.connectors.location_context import LocationContextConnector, load_location_context_fixture
 from hermes_pulse.connectors.notes import NotesConnector
+from hermes_pulse.connectors.x_browser import XBrowserConnector, refresh_x_browser_profile
 from hermes_pulse.connectors.x_url import XUrlConnector
 from hermes_pulse.exporters.chatgpt_export_prep import ChatGPTExportPreparer
 from hermes_pulse.exporters.grok_browser_export import GrokBrowserExporter
@@ -109,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
             "refresh-chatgpt-history",
             "prepare-chatgpt-history",
             "refresh-x-oauth2",
+            "refresh-x-browser-profile",
             "state-summary",
         ),
     )
@@ -150,6 +152,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retryable", action="store_true")
     parser.add_argument("--now")
     parser.add_argument("--x-signals")
+    parser.add_argument("--x-browser-signals")
+    parser.add_argument("--x-browser-profile-root", type=Path)
+    parser.add_argument("--x-browser-profile-directory", default="Profile 4")
+    parser.add_argument("--chrome-user-data-dir", type=Path)
+    parser.add_argument("--chrome-profile-directory", default="Profile 4")
+    parser.add_argument("--x-browser-handle")
+    parser.add_argument("--x-browser-limit", type=int, default=20)
     return parser
 
 
@@ -216,6 +225,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_interactive_reauth=args.allow_interactive_reauth,
         )
         return 0
+    if args.command == "refresh-x-browser-profile":
+        if args.chrome_user_data_dir is None or args.x_browser_profile_root is None:
+            raise ValueError(
+                "refresh-x-browser-profile requires --chrome-user-data-dir and --x-browser-profile-root"
+            )
+        refresh_x_browser_profile(
+            source_user_data_dir=args.chrome_user_data_dir,
+            source_profile_directory=args.chrome_profile_directory,
+            destination_user_data_dir=args.x_browser_profile_root,
+            destination_profile_directory=args.x_browser_profile_directory,
+        )
+        return 0
     if args.command == "state-summary":
         if args.state_db is None:
             raise ValueError("state-summary requires --state-db")
@@ -260,7 +281,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 pending_connector_cursor_update = (
                     items,
-                    _parse_x_signal_types(getattr(args, "x_signals", None)),
+                    _parse_x_signal_types(
+                        getattr(args, "x_browser_signals", None) or getattr(args, "x_signals", None)
+                    ),
                     _requested_history_connectors(args),
                     occurred_at,
                 )
@@ -522,6 +545,22 @@ def _collect_x_signals_with_error_capture(
 ) -> list[CollectedItem]:
     try:
         items = XUrlConnector().collect(signal_types)
+    except Exception as exc:
+        source_errors["x_signals"] = str(exc)
+        return []
+    successful_sources.add("x_signals")
+    return items
+
+
+def _collect_x_browser_signals_with_error_capture(
+    connector: XBrowserConnector,
+    signal_types: list[str],
+    *,
+    source_errors: dict[str, str],
+    successful_sources: set[str],
+) -> list[CollectedItem]:
+    try:
+        items = connector.collect(signal_types)
     except Exception as exc:
         source_errors["x_signals"] = str(exc)
         return []
@@ -1211,11 +1250,33 @@ def _build_digest_with_source_errors(command: str, args: argparse.Namespace) -> 
         connectors["chatgpt_history"] = BoundConnector(
             lambda: ChatGPTHistoryConnector().collect(args.chatgpt_history)
         )
+    if args.x_signals and getattr(args, "x_browser_signals", None):
+        raise ValueError("Use either --x-signals or --x-browser-signals, not both")
     if args.x_signals:
-        signal_types = [value.strip() for value in args.x_signals.split(",") if value.strip()]
+        signal_types = _parse_x_signal_types(args.x_signals)
         connectors["x_signals"] = BoundConnector(
             lambda: _collect_x_signals_with_error_capture(
                 signal_types,
+                source_errors=source_errors,
+                successful_sources=successful_sources,
+            )
+        )
+    if getattr(args, "x_browser_signals", None):
+        if args.x_browser_profile_root is None or args.x_browser_handle is None:
+            raise ValueError(
+                "--x-browser-signals requires --x-browser-profile-root and --x-browser-handle"
+            )
+        browser_signal_types = _parse_x_signal_types(args.x_browser_signals)
+        x_browser_connector = XBrowserConnector(
+            profile_root=args.x_browser_profile_root,
+            profile_directory=args.x_browser_profile_directory,
+            expected_handle=args.x_browser_handle,
+            limit=args.x_browser_limit,
+        )
+        connectors["x_signals"] = BoundConnector(
+            lambda: _collect_x_browser_signals_with_error_capture(
+                x_browser_connector,
+                browser_signal_types,
                 source_errors=source_errors,
                 successful_sources=successful_sources,
             )

@@ -704,6 +704,24 @@ def test_build_parser_accepts_digest_command_codex_model_and_summary_format() ->
     assert args.summary_format == DEFAULT_SUMMARY_FORMAT
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--chatgpt-history", str(CHATGPT_HISTORY_PATH)]).chatgpt_history == CHATGPT_HISTORY_PATH
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--grok-history", str(GROK_HISTORY_PATH)]).grok_history == GROK_HISTORY_PATH
+    browser_args = direct_delivery.build_parser().parse_args(
+        [
+            "--channel",
+            "D123",
+            "--x-browser-signals",
+            "likes,home_timeline_reverse_chronological",
+            "--x-browser-profile-root",
+            "/Users/akitani/.hermes/browser/x-pulse-profile",
+            "--x-browser-profile-directory",
+            "Profile 4",
+            "--x-browser-handle",
+            "Y20010920T",
+            "--x-browser-limit",
+            "20",
+        ]
+    )
+    assert browser_args.x_browser_handle == "Y20010920T"
+    assert browser_args.x_browser_limit == 20
 
 
 def test_run_digest_direct_delivery_uses_requested_digest_command(monkeypatch, tmp_path: Path) -> None:

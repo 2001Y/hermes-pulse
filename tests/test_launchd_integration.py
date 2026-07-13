@@ -95,6 +95,57 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
     ]
 
 
+def test_render_direct_delivery_wrapper_uses_authenticated_browser_x_signals_without_xurl() -> None:
+    spec = DirectDeliveryWrapperSpec(
+        python_executable=Path("/Users/akitani/.hermes/hermes-agent/venv/bin/python"),
+        repo_root=REPO_ROOT,
+        channel="D0AT8A3RB9A",
+        x_browser_signals="likes,home_timeline_reverse_chronological",
+        x_browser_profile_root=Path("/Users/akitani/.hermes/browser/x-pulse-profile"),
+        x_browser_profile_directory="Profile 4",
+        x_browser_handle="Y20010920T",
+        x_browser_limit=20,
+        chrome_user_data_dir=Path("/Users/akitani/Library/Application Support/Google/Chrome"),
+        chrome_profile_directory="Profile 4",
+    )
+
+    wrapper = render_direct_delivery_wrapper(spec)
+
+    assert "xurl auth" not in wrapper
+    assert "refresh-x-oauth2" not in wrapper
+    refresh_line = next(line for line in wrapper.splitlines() if "refresh-x-browser-profile" in line)
+    assert shlex.split(refresh_line.strip().removeprefix("if ! ").removesuffix(" >/dev/null 2>&1; then")) == [
+        "/Users/akitani/.hermes/hermes-agent/venv/bin/python",
+        "-m",
+        "hermes_pulse.cli",
+        "refresh-x-browser-profile",
+        "--chrome-user-data-dir",
+        "/Users/akitani/Library/Application Support/Google/Chrome",
+        "--chrome-profile-directory",
+        "Profile 4",
+        "--x-browser-profile-root",
+        "/Users/akitani/.hermes/browser/x-pulse-profile",
+        "--x-browser-profile-directory",
+        "Profile 4",
+    ]
+    assert 'echo "warning: X browser profile refresh failed; digest will continue with existing browser profile" >&2' in wrapper
+    exec_line = next(line for line in wrapper.splitlines() if line.startswith("exec "))
+    exec_args = shlex.split(exec_line.removeprefix("exec "))
+    browser_start = exec_args.index("--x-browser-signals")
+    assert exec_args[browser_start : browser_start + 10] == [
+        "--x-browser-signals",
+        "likes,home_timeline_reverse_chronological",
+        "--x-browser-profile-root",
+        "/Users/akitani/.hermes/browser/x-pulse-profile",
+        "--x-browser-profile-directory",
+        "Profile 4",
+        "--x-browser-handle",
+        "Y20010920T",
+        "--x-browser-limit",
+        "20",
+    ]
+
+
 def test_render_launchd_plist_serializes_label_schedule_and_program_arguments() -> None:
     plist = render_launchd_plist(
         LaunchdPlistSpec(
