@@ -17,14 +17,15 @@ from hermes_pulse.summarization.base import CODEX_DIGEST_RELATIVE_PATH, RAW_ITEM
 from hermes_pulse.summarization.codex_cli import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_SUMMARY_FORMAT,
-    build_summary_format_instructions,
+    _find_markdown_inline_links,
+    build_summary_format_instructions as build_summary_format_instructions,
 )
 
 
 DEFAULT_SLACK_DIRECT_PATH = Path.home() / ".hermes" / "scripts" / "slack_direct.py"
 DEFAULT_SLACK_MESSAGE_LIMIT = 3500
 DEFAULT_RETRY_DELAYS_SECONDS = (300, 300)
-MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+
 
 
 class SlackPoster(Protocol):
@@ -312,7 +313,14 @@ def load_slack_direct_post_message(script_path: str | Path = DEFAULT_SLACK_DIREC
 
 
 def _render_digest_for_slack(markdown: str) -> str:
-    return MARKDOWN_LINK_RE.sub(lambda match: f"<{match.group(2)}|{match.group(1)}>", markdown)
+    rendered: list[str] = []
+    cursor = 0
+    for label, url, start, end in _find_markdown_inline_links(markdown):
+        rendered.append(markdown[cursor:start])
+        rendered.append(f"<{url}|{label}>")
+        cursor = end
+    rendered.append(markdown[cursor:])
+    return "".join(rendered)
 
 
 def _build_slack_blocks(markdown: str) -> list[dict[str, Any]]:

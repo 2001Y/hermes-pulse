@@ -262,6 +262,110 @@ def test_post_canonical_digest_to_slack_converts_markdown_links_and_bullets_to_s
     assert result.content == digest_path.read_text()
 
 
+def test_slack_renderer_preserves_parenthesized_markdown_link_url() -> None:
+    url = "https://example.com/wiki/Foo_(bar)"
+    markdown = f"- [Foo workflow]({url})\n"
+
+    rendered = direct_delivery._render_digest_for_slack(markdown)
+    blocks = direct_delivery._build_slack_blocks(rendered)
+
+    assert rendered == f"- <{url}|Foo workflow>\n"
+    assert blocks[0]["elements"][0]["elements"][0]["elements"] == [
+        {"type": "link", "url": url, "text": "Foo workflow"}
+    ]
+
+
+def test_slack_renderer_preserves_nested_parentheses_in_markdown_link_url() -> None:
+    url = "https://example.com/wiki/A_(B_(C))"
+    markdown = f"- [Nested workflow]({url})\n"
+
+    rendered = direct_delivery._render_digest_for_slack(markdown)
+    blocks = direct_delivery._build_slack_blocks(rendered)
+
+    assert rendered == f"- <{url}|Nested workflow>\n"
+    assert blocks[0]["elements"][0]["elements"][0]["elements"] == [
+        {"type": "link", "url": url, "text": "Nested workflow"}
+    ]
+
+
+def test_slack_renderer_preserves_bracketed_ipv6_markdown_link_url() -> None:
+    url = "http://[2001:db8::1]/workflow"
+    markdown = f"- [IPv6 workflow]({url})\n"
+
+    rendered = direct_delivery._render_digest_for_slack(markdown)
+    blocks = direct_delivery._build_slack_blocks(rendered)
+
+    assert rendered == f"- <{url}|IPv6 workflow>\n"
+    assert blocks[0]["elements"][0]["elements"][0]["elements"] == [
+        {"type": "link", "url": url, "text": "IPv6 workflow"}
+    ]
+
+
+def test_post_canonical_digest_to_slack_preserves_skillization_overlay_and_intentional_normal_overlap(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    url = "https://example.com/reusable-workflow"
+    digest_path.write_text(
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        f"- [Reusable workflow]({url})、通常ニュース要約\n\n"
+        "▫ スキル化候補\n"
+        f"- [Reusable workflow]({url}) — 能力: 反復可能な手順; 反映先: 既存Skill更新; 価値: 高\n"
+    )
+    calls: list[dict[str, object]] = []
+
+    result = direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=lambda text, *_args, **kwargs: calls.append(
+            {"text": text, "blocks": kwargs.get("blocks")}
+        )
+        or {"ok": True, "channel": "C123", "ts": "1"},
+    )
+
+    assert len(calls) == 1
+    slack_text = calls[0]["text"]
+    assert isinstance(slack_text, str)
+    assert slack_text.count(f"<{url}|Reusable workflow>") == 2
+    assert "▫ スキル化候補" in slack_text
+    assert calls[0]["blocks"]
+    assert result.content == digest_path.read_text()
+
+
+def test_post_canonical_digest_to_slack_preserves_skillization_heading_and_overlap_after_chunking(tmp_path: Path) -> None:
+    archive_directory = tmp_path / date.today().isoformat()
+    digest_path = archive_directory / "summary" / "codex-digest.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    url = "https://example.com/reusable-workflow"
+    digest_path.write_text(
+        "☀ *Hermes Pulse Morning Briefing*\n\n"
+        "▫ AI\n"
+        f"- [Reusable workflow]({url})、通常ニュース要約 " + ("A" * 1800) + "\n\n"
+        "▫ スキル化候補\n"
+        f"- [Reusable workflow]({url}) — 能力: 反復可能な手順; 反映先: 既存Skill更新; 価値: 高 "
+        + ("B" * 1800)
+        + "\n"
+    )
+    calls: list[dict[str, object]] = []
+
+    direct_delivery.post_canonical_digest_to_slack(
+        archive_directory,
+        channel="C123",
+        post_message=lambda text, *_args, **kwargs: calls.append(
+            {"text": text, "blocks": kwargs.get("blocks")}
+        )
+        or {"ok": True, "channel": "C123", "ts": str(len(calls))},
+    )
+
+    assert len(calls) == 2
+    posted_text = "\n".join(str(call["text"]) for call in calls)
+    assert posted_text.count(f"<{url}|Reusable workflow>") == 2
+    assert sum("▫ スキル化候補" in str(call["text"]) for call in calls) == 1
+    assert all(call["blocks"] for call in calls)
+    assert "▫ スキル化候補" in json.dumps(calls[1]["blocks"], ensure_ascii=False)
+
+
 def test_post_canonical_digest_to_slack_does_not_rewrite_unlinked_bullets_from_raw_items(tmp_path: Path) -> None:
     archive_directory = tmp_path / date.today().isoformat()
     digest_path = archive_directory / "summary" / "codex-digest.md"

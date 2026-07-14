@@ -1,9 +1,12 @@
+import hashlib
 import json
+import logging
 import re
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 from hermes_pulse.categories import category_label, group_raw_items_by_category
 from hermes_pulse.summarization.base import (
@@ -30,7 +33,10 @@ INLINE_SOURCE_LINK_INSTRUCTION = (
 )
 PRESERVE_INLINE_SOURCE_LINKS_INSTRUCTION = "統合・短縮時も既存の Markdown リンクを消さず、リンク先 URL を別 URL に置き換えないでください。"
 NO_URL_LIST_INSTRUCTION = "URL を文末に列挙しないでください。裸の URL を単独で並べるのも避けてください。"
-MARKDOWN_INLINE_LINK_RE = re.compile(r"\[[^\]]+\]\((https?://[^)\s]+)\)")
+MARKDOWN_INLINE_LINK_START_RE = re.compile(r"\[([^\]\n]+)\]\(")
+SKILLIZATION_HEADING = "▫ スキル化候補"
+
+logger = logging.getLogger(__name__)
 
 
 class CodexCliSummarizer:
@@ -96,6 +102,45 @@ class CodexCliSummarizer:
                 source_context=_source_link_context_from_markdown("\n".join(partial_summaries)),
                 previous_output_label="最終要約",
             )
+            skillization_candidates: list[list[dict[str, str]]] = []
+            try:
+                skillization_items = _prepare_items_for_prompt([dict(item) for item in items])
+                skillization_chunks = _chunk_items_by_count(skillization_items, MAX_PROMPT_RAW_ITEMS)
+            except Exception as error:
+                logger.warning("Skipping skillization overlay after preparation failure: %s", error)
+                skillization_chunks = []
+            for chunk_index, chunk in enumerate(skillization_chunks, start=1):
+                try:
+                    source_context = _skillization_source_context_from_items(chunk)
+                    prompt = build_skillization_candidates_prompt(
+                        json.dumps(chunk, ensure_ascii=False),
+                        chunk_index=chunk_index,
+                        chunk_total=len(skillization_chunks),
+                        title_fetcher=self._title_fetcher,
+                        title_synthesizer=self._title_synthesizer,
+                        source_context=source_context,
+                    )
+                    normalized = _run_skillization_prompt(
+                        self._invocation,
+                        prompt,
+                        cwd=codex_context,
+                        source_context=source_context,
+                    )
+                except Exception as error:
+                    logger.warning(
+                        "Skipping skillization candidate chunk %s/%s after optional overlay failure: %s",
+                        chunk_index,
+                        len(skillization_chunks),
+                        error,
+                    )
+                    continue
+                if normalized:
+                    skillization_candidates.append(normalized)
+            try:
+                skillization_overlay = _combine_skillization_candidate_summaries(skillization_candidates)
+                content = _append_skillization_overlay(content, skillization_overlay)
+            except Exception as error:
+                logger.warning("Skipping skillization overlay after finalization failure: %s", error)
 
         output_path = archive_directory / CODEX_DIGEST_RELATIVE_PATH
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +255,301 @@ def _has_required_inline_source_link(markdown: str, source_context: list[dict[st
 
 
 def _extract_markdown_link_urls(markdown: str) -> list[str]:
-    return [match.group(1) for match in MARKDOWN_INLINE_LINK_RE.finditer(markdown)]
+    return [url for _label, url, _start, _end in _find_markdown_inline_links(markdown)]
+
+
+def _find_markdown_inline_links(markdown: str) -> list[tuple[str, str, int, int]]:
+    links: list[tuple[str, str, int, int]] = []
+    consumed_until = 0
+    for match in MARKDOWN_INLINE_LINK_START_RE.finditer(markdown):
+        if match.start() < consumed_until:
+            continue
+        url_start = match.end()
+        parenthesis_depth = 0
+        for index in range(url_start, len(markdown)):
+            character = markdown[index]
+            if character.isspace():
+                break
+            if character == "(":
+                parenthesis_depth += 1
+                continue
+            if character != ")":
+                continue
+            if parenthesis_depth > 0:
+                parenthesis_depth -= 1
+                continue
+            url = markdown[url_start:index]
+            if _is_http_url(url):
+                links.append((match.group(1), url, match.start(), index + 1))
+                consumed_until = index + 1
+            break
+    return links
+
+
+def _run_skillization_prompt(
+    invocation: CodexInvocation,
+    prompt: str,
+    *,
+    cwd: Path,
+    source_context: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    output = invocation.run(prompt, cwd=cwd)
+    try:
+        return _normalize_skillization_candidate_output(output, source_context=source_context)
+    except RuntimeError:
+        repair_prompt = build_skillization_candidates_repair_prompt(
+            previous_output=output,
+            source_context=source_context,
+        )
+        repaired_output = invocation.run(repair_prompt, cwd=cwd)
+        return _normalize_skillization_candidate_output(repaired_output, source_context=source_context)
+
+
+def build_skillization_candidates_repair_prompt(
+    *,
+    previous_output: str,
+    source_context: list[dict[str, str]],
+) -> str:
+    lines = [
+        "あなたは Hermes Pulse のスキル化候補修正担当です。",
+        "前回のスキル化候補は出力契約を満たしません。新しい事実、URL、source_idを追加せずに修正してください。",
+        "出力はJSON配列だけにし、各要素を source_id / capability / destination / value の4フィールドにしてください。",
+        "source_idはsource contextから選び、capabilityにはURL・Markdown・Slackリンクを含めないでください。",
+        "destinationは `既存Skill更新` / `reference追加` / `script・template追加` / `新規class-level Skill` のいずれかにしてください。",
+        "valueは `高` / `中` / `高・要検証` / `中・要検証` のいずれかにしてください。",
+        "候補がない場合は空のJSON配列 `[]` を返してください。前置き、コードフェンス、説明は不要です。",
+        "",
+        "## source context",
+        "```json",
+        json.dumps(source_context, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## 前回のスキル化候補",
+        previous_output.rstrip(),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _normalize_skillization_candidate_output(
+    output: str,
+    *,
+    source_context: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    try:
+        payload = json.loads(output.strip())
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Codex skillization candidate output must be a JSON array") from error
+    if not isinstance(payload, list):
+        raise RuntimeError("Codex skillization candidate output must be a JSON array")
+
+    source_by_id = {entry["source_id"]: entry for entry in source_context if entry.get("source_id")}
+    if len(payload) > MAX_PROMPT_RAW_ITEMS:
+        raise RuntimeError("Codex skillization candidate output exceeds the per-chunk candidate limit")
+
+    required_fields = {"source_id", "capability", "destination", "value"}
+    allowed_destinations = {"既存Skill更新", "reference追加", "script・template追加", "新規class-level Skill"}
+    allowed_values = {"高", "中", "高・要検証", "中・要検証"}
+    seen_source_ids: set[str] = set()
+    normalized: list[dict[str, str]] = []
+    for candidate in payload:
+        if not isinstance(candidate, dict) or set(candidate) != required_fields:
+            raise RuntimeError("Codex skillization candidate must contain exactly the required fields")
+        if not all(isinstance(candidate[field], str) for field in required_fields):
+            raise RuntimeError("Codex skillization candidate fields must be strings")
+
+        source_id = candidate["source_id"]
+        source = source_by_id.get(source_id)
+        if source is None:
+            raise RuntimeError("Codex skillization candidate references an unknown source_id")
+        capability = candidate["capability"]
+        destination = candidate["destination"]
+        value = candidate["value"]
+        if not _is_safe_skillization_plain_text(capability):
+            raise RuntimeError("Codex skillization capability must be plain text without links")
+        if destination not in allowed_destinations or value not in allowed_values:
+            raise RuntimeError("Codex skillization candidate has an invalid destination or value")
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        normalized.append(
+            {
+                "source_id": source_id,
+                "url": source["url"],
+                "title": source.get("title", ""),
+                "content_fingerprint": source.get("content_fingerprint", ""),
+                "capability": capability,
+                "destination": destination,
+                "value": value,
+            }
+        )
+    return normalized
+
+
+def _is_safe_skillization_plain_text(value: str) -> bool:
+    if not value or value != value.strip() or len(value) > 280 or len(value.splitlines()) != 1:
+        return False
+    normalized_value = unicodedata.normalize("NFKC", value)
+    if normalized_value != normalized_value.strip() or len(normalized_value) > 280 or len(normalized_value.splitlines()) != 1:
+        return False
+    if any(character in normalized_value for character in "<>[]*_~`"):
+        return False
+    if ";" in normalized_value or re.search(r"(?:能力|反映先|価値)\s*[:：]", normalized_value):
+        return False
+    if any(unicodedata.category(character) in {"Cc", "Cf", "Zl", "Zp"} for character in value):
+        return False
+    if re.search(r"(?i)(?:https?://|www\.|\b[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:[/?:#][^\s]*)?)", normalized_value):
+        return False
+    return True
+
+
+_TRACKING_QUERY_PARAMETERS = {
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+}
+_UNRESERVED_URL_CHARACTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+_PERCENT_ESCAPE_RE = re.compile(r"%([0-9A-Fa-f]{2})")
+
+
+def _normalize_percent_encoded_unreserved(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        character = chr(int(match.group(1), 16))
+        if character in _UNRESERVED_URL_CHARACTERS:
+            return character
+        return f"%{match.group(1).upper()}"
+
+    return _PERCENT_ESCAPE_RE.sub(replace, value)
+
+
+def _normalize_query_for_dedupe(query: str) -> str:
+    kept_components: list[str] = []
+    for component in query.split("&"):
+        raw_key = component.split("=", 1)[0]
+        normalized_key = unquote_plus(raw_key).casefold()
+        if normalized_key.startswith("utm_") or normalized_key in _TRACKING_QUERY_PARAMETERS:
+            continue
+        kept_components.append(_normalize_percent_encoded_unreserved(component))
+    return "&".join(kept_components)
+
+
+def _canonicalize_url_for_dedupe(url: str) -> str:
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if hostname is None:
+        return url
+    hostname = hostname.rstrip(".")
+    if ":" in hostname:
+        normalized_hostname = hostname.lower()
+        host = f"[{normalized_hostname}]"
+    else:
+        try:
+            normalized_hostname = hostname.encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            normalized_hostname = hostname.lower()
+        host = normalized_hostname
+    if "@" in parsed.netloc:
+        host = f"{parsed.netloc.rsplit('@', 1)[0]}@{host}"
+    try:
+        port = parsed.port
+    except ValueError:
+        return url
+    if port is not None and not (
+        (parsed.scheme.lower() == "http" and port == 80) or (parsed.scheme.lower() == "https" and port == 443)
+    ):
+        host = f"{host}:{port}"
+    path = parsed.path or "/"
+    return parsed._replace(
+        scheme=parsed.scheme.lower(),
+        netloc=host,
+        path=_normalize_percent_encoded_unreserved(path),
+        params=_normalize_percent_encoded_unreserved(parsed.params),
+        query=_normalize_query_for_dedupe(parsed.query),
+        fragment="",
+    ).geturl()
+
+
+def _normalize_source_fingerprint_text(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    return value
+
+
+def _skillization_content_fingerprint(source: dict[str, object]) -> str:
+    body = _normalize_source_fingerprint_text(source.get("body"))
+    excerpt = _normalize_source_fingerprint_text(source.get("excerpt"))
+    if body:
+        payload = {"field": "body", "text": body}
+    elif excerpt:
+        payload = {"field": "excerpt", "text": excerpt}
+    else:
+        return ""
+    canonical_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
+
+def _combine_skillization_candidate_summaries(summaries: list[list[dict[str, str]]]) -> str | None:
+    seen_urls: set[str] = set()
+    seen_content_fingerprints: set[str] = set()
+    bullets: list[str] = []
+    for summary in summaries:
+        for candidate in summary:
+            url = candidate["url"]
+            canonical_url = _canonicalize_url_for_dedupe(url)
+            content_fingerprint = candidate.get("content_fingerprint", "")
+            if canonical_url in seen_urls or (
+                content_fingerprint and content_fingerprint in seen_content_fingerprints
+            ):
+                continue
+            seen_urls.add(canonical_url)
+            if content_fingerprint:
+                seen_content_fingerprints.add(content_fingerprint)
+            label = _sanitize_markdown_link_label(candidate.get("title") or url)
+            bullets.append(
+                f"- [{label}]({url}) — 能力: {candidate['capability']}; "
+                f"反映先: {candidate['destination']}; 価値: {candidate['value']}"
+            )
+    if not bullets:
+        return None
+    return "\n".join([SKILLIZATION_HEADING, *bullets]) + "\n"
+
+
+def _sanitize_markdown_link_label(value: str) -> str:
+    translations = str.maketrans(
+        {
+            "[": "［",
+            "]": "］",
+            "<": "‹",
+            ">": "›",
+            "|": "｜",
+            "*": "＊",
+            "_": "＿",
+            "~": "～",
+            "`": "｀",
+            "&": "＆",
+            "\\": "＼",
+        }
+    )
+    collapsed = " ".join(value.split())
+    sanitized = "".join(
+        character
+        for character in collapsed.translate(translations)
+        if unicodedata.category(character) not in {"Cc", "Cf", "Zl", "Zp"}
+    )
+    return sanitized or "出典"
+
+
+def _append_skillization_overlay(content: str, overlay: str | None) -> str:
+    if overlay is None:
+        return content
+    if content.endswith("\n\n"):
+        separator = ""
+    elif content.endswith("\n"):
+        separator = "\n"
+    else:
+        separator = "\n\n"
+    return f"{content}{separator}{overlay}"
 
 
 def _source_link_context_from_items(items: list[dict[str, object]]) -> list[dict[str, str]]:
@@ -232,12 +571,26 @@ def _source_link_context_from_items(items: list[dict[str, object]]) -> list[dict
     return context
 
 
+def _skillization_source_context_from_items(items: list[dict[str, object]]) -> list[dict[str, str]]:
+    source_by_url: dict[str, dict[str, object]] = {}
+    for item in items:
+        url = item.get("url")
+        if isinstance(url, str) and _is_http_url(url) and url not in source_by_url:
+            source_by_url[url] = item
+    context: list[dict[str, str]] = []
+    for index, entry in enumerate(_source_link_context_from_items(items), start=1):
+        enriched_entry = {"source_id": f"source-{index}", **entry}
+        fingerprint = _skillization_content_fingerprint(source_by_url[entry["url"]])
+        if fingerprint:
+            enriched_entry["content_fingerprint"] = fingerprint
+        context.append(enriched_entry)
+    return context
+
+
 def _source_link_context_from_markdown(markdown: str) -> list[dict[str, str]]:
     context: list[dict[str, str]] = []
     seen_urls: set[str] = set()
-    for match in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", markdown):
-        label = match.group(1)
-        url = match.group(2)
+    for label, url, _start, _end in _find_markdown_inline_links(markdown):
         if url in seen_urls:
             continue
         seen_urls.add(url)
@@ -246,7 +599,14 @@ def _source_link_context_from_markdown(markdown: str) -> list[dict[str, str]]:
 
 
 def _is_http_url(value: str) -> bool:
-    return value.startswith("https://") or value.startswith("http://")
+    if any(character.isspace() or character in '<>|"' for character in value):
+        return False
+    try:
+        parsed = urlparse(value)
+        hostname = parsed.hostname
+    except ValueError:
+        return False
+    return parsed.scheme in {"https", "http"} and bool(parsed.netloc) and bool(hostname)
 
 
 def build_codex_digest_prompt(
@@ -297,6 +657,65 @@ def build_codex_digest_prompt(
         "## Primary grounding: normalized content snapshot",
         "```json",
         compact_raw_items.rstrip(),
+        "```",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def build_skillization_candidates_prompt(
+    raw_items: str,
+    *,
+    chunk_index: int = 1,
+    chunk_total: int = 1,
+    title_fetcher=None,
+    title_synthesizer=None,
+    source_context: list[dict[str, str]] | None = None,
+) -> str:
+    parsed_items = json.loads(raw_items)
+    prepared_items = parsed_items if source_context is not None else _prepare_items_for_prompt(parsed_items)
+    effective_source_context = (
+        source_context if source_context is not None else _skillization_source_context_from_items(prepared_items)
+    )
+    source_id_by_url = {entry["url"]: entry["source_id"] for entry in effective_source_context}
+    compact_raw_items, _ = _compact_raw_items_for_prompt(
+        json.dumps(prepared_items, ensure_ascii=False),
+        title_fetcher=title_fetcher,
+        title_synthesizer=title_synthesizer,
+    )
+    grounding = [
+        {"source_id": source_id_by_url[item["url"]], **item}
+        for item in json.loads(compact_raw_items)
+        if isinstance(item.get("url"), str) and item["url"] in source_id_by_url
+    ]
+    raw_item_counts = {
+        "total_items": len(prepared_items),
+        "included_in_prompt": len(grounding),
+        "omitted_from_prompt": max(len(prepared_items) - len(grounding), 0),
+    }
+    lines = [
+        "あなたは Hermes Pulse のスキル化候補選定担当です。",
+        "これは通常ニュースカテゴリとは独立した横断overlayです。通常カテゴリの分類・選定・順序・要約を変更しないでください。",
+        "通常カテゴリとの同一URL・同一記事の重複を許可します。このoverlay内だけは同じsource_idを1回にしてください。",
+        "将来のAgent実行を改善する、順序立った再利用可能workflow、非自明なCLI/API/tool技法、検証可能なprompt/判断framework、debug/test/research/design/automation手順、既存Skillやrepoのimport候補、既存Skillへ追加すべきpitfall/quality gateを選んでください。",
+        "単なる発表、感想、一般論、孤立した事実、現在の人気だけが価値の情報、移植可能な手順がない宣伝は除外してください。",
+        "候補化はSkill自動作成ではありません。未検証の主張は要検証とし、変換済み・導入済みとは書かないでください。",
+        f"このpromptは候補選定chunk {chunk_index}/{chunk_total} です。",
+        "",
+        "出力はJSON配列だけにし、各要素を source_id / capability / destination / value の4フィールドにしてください。",
+        "source_idはCandidate groundingから選び、URLは出力しないでください。capabilityはリンクを含まない簡潔な1行のplain textにしてください。",
+        "destinationは `既存Skill更新` / `reference追加` / `script・template追加` / `新規class-level Skill` のいずれかにしてください。",
+        "valueは `高` / `中` / `高・要検証` / `中・要検証` のいずれかにしてください。",
+        "候補が1件もない場合は空のJSON配列 `[]` を返してください。前置き、コードフェンス、説明は不要です。",
+        "",
+        "## item counts",
+        "```json",
+        json.dumps(raw_item_counts, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Candidate grounding",
+        "```json",
+        json.dumps(grounding, ensure_ascii=False, indent=2),
         "```",
         "",
     ]
@@ -428,6 +847,14 @@ def _chunk_items(items: list[dict[str, object]], chunk_size: int) -> list[list[d
     if current_chunk:
         chunks.append(current_chunk)
     return chunks
+
+
+def _chunk_items_by_count(items: list[dict[str, object]], chunk_size: int) -> list[list[dict[str, object]]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if not items:
+        return [[]]
+    return [items[index : index + chunk_size] for index in range(0, len(items), chunk_size)]
 
 
 def _estimate_item_tokens(item: dict[str, object]) -> int:

@@ -18,6 +18,8 @@ class StubCodexInvocation:
             "cwd": cwd,
             "raw_items_exists": (cwd / "raw" / "collected-items.json").exists(),
         })
+        if "スキル化候補選定担当" in prompt:
+            return "[]\n"
         return self.response
 
 
@@ -53,11 +55,13 @@ def test_codex_cli_summarizer_builds_grounded_prompt_and_writes_canonical_digest
     )
     assert artifact.path.exists()
     assert artifact.path.read_text() == artifact.content
-    assert len(invocation.calls) == 2
+    assert len(invocation.calls) == 3
     assert invocation.calls[0]["cwd"] != archive_directory
     assert invocation.calls[0]["raw_items_exists"] is False
     assert invocation.calls[1]["cwd"] != archive_directory
     assert invocation.calls[1]["raw_items_exists"] is False
+    assert invocation.calls[2]["cwd"] != archive_directory
+    assert invocation.calls[2]["raw_items_exists"] is False
 
     prompt = invocation.calls[0]["prompt"]
     assert isinstance(prompt, str)
@@ -136,6 +140,8 @@ def test_codex_cli_summarizer_splits_large_archives_into_chunk_prompts_and_merge
 
         def run(self, prompt: str, *, cwd: Path) -> str:
             self.calls.append({"prompt": prompt, "cwd": cwd})
+            if "スキル化候補選定担当" in prompt:
+                return "[]\n"
             if len(self.calls) == 1:
                 return "chunk-one [Title 0](https://example.com/0)"
             if len(self.calls) == 2:
@@ -154,9 +160,16 @@ def test_codex_cli_summarizer_splits_large_archives_into_chunk_prompts_and_merge
     artifact = summarizer.summarize_archive(archive_directory)
 
     assert artifact.content == "merged-final [Title 0](https://example.com/0)"
-    assert len(invocation.calls) == 6
+    assert len(invocation.calls) == 11
     assert "chunk-one" in invocation.calls[5]["prompt"]
     assert "chunk-two" in invocation.calls[5]["prompt"]
+    skillization_prompts = [
+        str(call["prompt"])
+        for call in invocation.calls
+        if "スキル化候補選定担当" in str(call["prompt"])
+    ]
+    assert len(skillization_prompts) == 5
+    assert '"title": "Title 249"' in skillization_prompts[-1]
     assert '"title": "Title 49"' in invocation.calls[0]["prompt"]
     assert '"title": "Title 50"' not in invocation.calls[0]["prompt"]
     assert '"title": "Title 249"' not in invocation.calls[0]["prompt"]
@@ -186,6 +199,8 @@ def test_codex_cli_summarizer_uses_smaller_chunk_size_for_large_archives(tmp_pat
 
         def run(self, prompt: str, *, cwd: Path) -> str:
             self.calls.append({"prompt": prompt, "cwd": cwd})
+            if "スキル化候補選定担当" in prompt:
+                return "[]\n"
             if len(self.calls) == 1:
                 return "response-1 [Title 0](https://example.com/0)"
             if len(self.calls) == 2:
@@ -205,7 +220,7 @@ def test_codex_cli_summarizer_uses_smaller_chunk_size_for_large_archives(tmp_pat
         "response-3 [Title 80](https://example.com/80)",
     ]
     assert artifact.content == "response-4 [Title 0](https://example.com/0)"
-    assert len(invocation.calls) == 4
+    assert len(invocation.calls) == 7
     assert '"title": "Title 39"' in invocation.calls[0]["prompt"]
     assert '"title": "Title 40"' not in invocation.calls[0]["prompt"]
     assert '"title": "Title 40"' in invocation.calls[1]["prompt"]
