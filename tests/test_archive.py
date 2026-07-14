@@ -86,6 +86,47 @@ def test_write_morning_digest_archive_records_duplicate_source_urls_only_once_ev
     assert [entry["id"] for entry in second_ledger_lines] == ["x_likes:2027277539262235108"]
 
 
+def test_x_like_url_is_not_reemitted_when_official_hydration_changes(tmp_path) -> None:
+    archive_root = tmp_path / "Pulse"
+    shared_url = "https://x.com/example/status/2027277539262235108"
+    activity_like = _item("x_likes", "9001", shared_url)
+    activity_like.title = "oEmbed title"
+    reconciled_like = _item("x_likes", "2027277539262235108", shared_url)
+    reconciled_like.title = "API title changed"
+
+    write_morning_digest_archive(
+        items=[activity_like],
+        archive_root=archive_root,
+        archive_date="2026-07-14",
+        retrieved_at="2026-07-14T08:00:00Z",
+    )
+    second_archive = write_morning_digest_archive(
+        items=[reconciled_like],
+        archive_root=archive_root,
+        archive_date="2026-07-14",
+        retrieved_at="2026-07-14T14:00:00Z",
+    )
+
+    assert json.loads((second_archive / "raw" / "collected-items.json").read_text()) == []
+
+
+def test_staged_archive_filters_new_items_without_committing_source_ledger(tmp_path) -> None:
+    archive_root = tmp_path / "Pulse"
+    item = _item("x_likes", "9001", "https://x.com/example/status/9001")
+
+    archive_directory = write_morning_digest_archive(
+        items=[item],
+        archive_root=archive_root,
+        archive_date="2026-07-14",
+        retrieved_at="2026-07-14T08:00:00Z",
+        commit_source_ledgers=False,
+    )
+
+    raw_items = json.loads((archive_directory / "raw" / "collected-items.json").read_text())
+    assert [entry["url"] for entry in raw_items] == [item.url]
+    assert not (archive_root / "sources" / "x_likes.jsonl").exists()
+
+
 def test_write_morning_digest_archive_skips_malformed_existing_ledger_lines(tmp_path) -> None:
     archive_root = tmp_path / "Pulse"
     ledger_path = archive_root / "sources" / "grok_history.jsonl"

@@ -7,6 +7,7 @@ import pytest
 
 import hermes_pulse.direct_delivery as direct_delivery
 from hermes_pulse.archive import write_morning_digest_archive
+from hermes_pulse.db import list_connector_cursor_records
 from hermes_pulse.models import CollectedItem, ItemTimestamps, Provenance
 from hermes_pulse.summarization.base import SummaryArtifact
 
@@ -704,24 +705,6 @@ def test_build_parser_accepts_digest_command_codex_model_and_summary_format() ->
     assert args.summary_format == DEFAULT_SUMMARY_FORMAT
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--chatgpt-history", str(CHATGPT_HISTORY_PATH)]).chatgpt_history == CHATGPT_HISTORY_PATH
     assert direct_delivery.build_parser().parse_args(["--channel", "D123", "--grok-history", str(GROK_HISTORY_PATH)]).grok_history == GROK_HISTORY_PATH
-    browser_args = direct_delivery.build_parser().parse_args(
-        [
-            "--channel",
-            "D123",
-            "--x-browser-signals",
-            "likes,home_timeline_reverse_chronological",
-            "--x-browser-profile-root",
-            "/Users/akitani/.hermes/browser/x-pulse-profile",
-            "--x-browser-profile-directory",
-            "Profile 4",
-            "--x-browser-handle",
-            "Y20010920T",
-            "--x-browser-limit",
-            "20",
-        ]
-    )
-    assert browser_args.x_browser_handle == "Y20010920T"
-    assert browser_args.x_browser_limit == 20
 
 
 def test_run_digest_direct_delivery_uses_requested_digest_command(monkeypatch, tmp_path: Path) -> None:
@@ -1035,3 +1018,131 @@ def test_post_canonical_digest_to_slack_physically_splits_inside_large_category_
     assert camera_index >= 1
     assert all("▫ カメラ" not in call["text"] for call in calls[:camera_index])
     assert "AI item 1" in calls[0]["text"]
+
+
+def test_direct_delivery_records_home_cursor_only_after_successful_slack_post(monkeypatch, tmp_path: Path) -> None:
+    state_db = tmp_path / "state" / "hermes-pulse.db"
+    item = CollectedItem(
+        id="x-home:2027277539262235109",
+        source="x_home_timeline_reverse_chronological",
+        source_kind="post",
+        title="New timeline post",
+        excerpt="New since the last successful run.",
+        url="https://x.com/example/status/2027277539262235109",
+        timestamps=ItemTimestamps(created_at="2026-07-14T00:00:00Z"),
+        provenance=Provenance(
+            provider="x.com",
+            acquisition_mode="official_api",
+            authority_tier="primary",
+            primary_source_url="https://x.com/example/status/2027277539262235109",
+            raw_record_id="2027277539262235109",
+        ),
+    )
+    monkeypatch.setattr(
+        direct_delivery,
+        "_build_digest_with_source_errors",
+        lambda command, args: ([item], {}, {"x_likes", "x_home_timeline_reverse_chronological"}),
+    )
+
+    def fake_summarize(archive_directory: Path, **_kwargs) -> SummaryArtifact:
+        digest_path = archive_directory / "summary" / "codex-digest.md"
+        digest_path.parent.mkdir(parents=True, exist_ok=True)
+        digest_path.write_text("- New timeline post\n")
+        return SummaryArtifact(path=digest_path, content=digest_path.read_text())
+
+    monkeypatch.setattr(direct_delivery, "_summarize_archive_with_retries", fake_summarize)
+    args = direct_delivery.build_parser().parse_args(
+        [
+            "--source-registry",
+            str(SOURCE_REGISTRY_PATH),
+            "--x-signals",
+            "likes,home_timeline_reverse_chronological",
+            "--x-expected-username",
+            "Y20010920T",
+            "--x-likes-reconcile-interval-hours",
+            "24",
+            "--state-db",
+            str(state_db),
+            "--archive-root",
+            str(tmp_path / "Pulse"),
+            "--now",
+            "2026-07-14T00:00:00Z",
+            "--channel",
+            "C123",
+        ]
+    )
+
+    direct_delivery.run_digest_direct_delivery(
+        args,
+        post_message=lambda text, channel, thread_ts=None, **kwargs: {
+            "ok": True,
+            "channel": channel,
+            "ts": "1712345.6789",
+        },
+    )
+
+    records = {record["connector_id"]: record for record in list_connector_cursor_records(state_db)}
+    assert records["x_home_timeline_reverse_chronological"]["cursor"] == "2027277539262235109"
+    assert records["x_likes_reconcile"]["last_success_at"] == "2026-07-14T00:00:00Z"
+    assert "x_likes" not in records
+
+
+def test_direct_delivery_failure_does_not_commit_x_items_to_source_ledger(tmp_path, monkeypatch) -> None:
+    archive_root = tmp_path / "Pulse"
+    state_db = tmp_path / "state" / "pulse.db"
+    item = CollectedItem(
+        id="x_home_timeline_reverse_chronological:2027277539262235109",
+        source="x_home_timeline_reverse_chronological",
+        source_kind="post",
+        title="New post",
+        excerpt="New post body",
+        url="https://x.com/example/status/2027277539262235109",
+        timestamps=ItemTimestamps(created_at="2026-07-14T07:55:00Z"),
+        provenance=Provenance(
+            provider="x.com",
+            acquisition_mode="official_api",
+            authority_tier="primary",
+            primary_source_url="https://x.com/example/status/2027277539262235109",
+            raw_record_id="2027277539262235109",
+        ),
+    )
+    monkeypatch.setattr(
+        direct_delivery,
+        "_build_digest_with_source_errors",
+        lambda command, args: ([item], {}, {"x_likes", "x_home_timeline_reverse_chronological"}),
+    )
+
+    def fake_summarize(archive_directory, **kwargs):
+        output_path = archive_directory / "summary" / "codex-digest.md"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("# Digest\n")
+        return SummaryArtifact(path=output_path, content="# Digest\n")
+
+    monkeypatch.setattr(direct_delivery, "_summarize_archive_with_retries", fake_summarize)
+    args = direct_delivery.build_parser().parse_args(
+        [
+            "--channel",
+            "C123",
+            "--archive-root",
+            str(archive_root),
+            "--x-signals",
+            "likes,home_timeline_reverse_chronological",
+            "--state-db",
+            str(state_db),
+            "--now",
+            "2026-07-14T08:00:00Z",
+        ]
+    )
+
+    def fail_post(text, channel, **kwargs):
+        raise RuntimeError("Slack unavailable")
+
+    try:
+        direct_delivery.run_digest_direct_delivery(args, post_message=fail_post)
+    except RuntimeError as exc:
+        assert "Slack unavailable" in str(exc)
+    else:
+        raise AssertionError("expected Slack delivery failure")
+
+    assert not (archive_root / "sources" / "x_home_timeline_reverse_chronological.jsonl").exists()
+    assert list_connector_cursor_records(state_db) == []

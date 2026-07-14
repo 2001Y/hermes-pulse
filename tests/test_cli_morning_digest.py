@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import hermes_pulse.cli
+from hermes_pulse.db import upsert_connector_cursor
 from hermes_pulse.models import CitationLink, CollectedItem, ItemTimestamps, Provenance
 from hermes_pulse.summarization.base import SummaryArtifact
 
@@ -343,26 +344,6 @@ def test_cli_parser_uses_hermes_pulse_program_name() -> None:
 
     assert parser.prog == "hermes-pulse"
     assert parser.parse_args(["morning-digest", "--x-signals", "bookmarks,likes"]).x_signals == "bookmarks,likes"
-    browser_args = parser.parse_args(
-        [
-            "morning-digest",
-            "--x-browser-signals",
-            "likes,home_timeline_reverse_chronological",
-            "--x-browser-profile-root",
-            "/Users/akitani/.hermes/browser/x-pulse-profile",
-            "--x-browser-profile-directory",
-            "Profile 4",
-            "--x-browser-handle",
-            "Y20010920T",
-            "--x-browser-limit",
-            "20",
-        ]
-    )
-    assert browser_args.x_browser_signals == "likes,home_timeline_reverse_chronological"
-    assert browser_args.x_browser_profile_root == Path("/Users/akitani/.hermes/browser/x-pulse-profile")
-    assert browser_args.x_browser_profile_directory == "Profile 4"
-    assert browser_args.x_browser_handle == "Y20010920T"
-    assert browser_args.x_browser_limit == 20
     assert parser.parse_args(["refresh-grok-history", "--output-dir", str(tmp_path := ROOT)]).command == "refresh-grok-history"
     assert parser.parse_args(["refresh-chatgpt-history", "--input-dir", str(tmp_path)]).command == "refresh-chatgpt-history"
     assert parser.parse_args(["morning-digest", "--chatgpt-history", str(CHATGPT_HISTORY_PATH)]).chatgpt_history == CHATGPT_HISTORY_PATH
@@ -464,49 +445,48 @@ def test_morning_digest_collects_configured_x_signals(monkeypatch, tmp_path: Pat
         == 0
     )
 
-    assert xurl_calls == [{"signal_types": ["bookmarks", "likes"]}]
+    assert xurl_calls == [{"signal_types": ["bookmarks"]}, {"signal_types": ["likes"]}]
     assert "Saved launch thread" in output_path.read_text()
 
 
-def test_morning_digest_collects_x_signals_from_authenticated_browser(monkeypatch, tmp_path: Path) -> None:
-    browser_calls: list[dict[str, object]] = []
+def test_morning_digest_passes_saved_home_cursor_and_expected_identity_to_x_connector(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
     _install_stub_codex_summarizer(monkeypatch)
+    state_db = tmp_path / "state" / "hermes-pulse.db"
+    upsert_connector_cursor(
+        state_db,
+        connector_id="x_home_timeline_reverse_chronological",
+        cursor="2027277539262235108",
+        last_poll_at="2026-07-13T22:00:00Z",
+        last_success_at="2026-07-13T22:00:00Z",
+    )
 
-    class FakeXBrowserConnector:
-        def __init__(self, **kwargs):
-            browser_calls.append({"constructor": kwargs})
+    class FakeXConnector:
+        def __init__(self, *, expected_username: str | None = None) -> None:
+            calls.append({"expected_username": expected_username})
 
-        def collect(self, signal_types: list[str]):
-            browser_calls.append({"signal_types": signal_types})
+        def collect(self, signal_types: list[str], *, since_ids: dict[str, str] | None = None):
+            calls.append({"signal_types": signal_types, "since_ids": since_ids})
             return [
                 CollectedItem(
-                    id="x-likes:tweet-browser-1",
-                    source="x_likes",
+                    id="x-home:2027277539262235109",
+                    source="x_home_timeline_reverse_chronological",
                     source_kind="post",
-                    title="Browser-collected liked post",
-                    excerpt="Collected from the authenticated X web UI.",
-                    url="https://x.com/example/status/2",
+                    title="New timeline post",
+                    excerpt="Only the increment is collected.",
+                    url="https://x.com/example/status/2027277539262235109",
                     timestamps=ItemTimestamps(created_at="2026-07-14T00:00:00Z"),
                     provenance=Provenance(
                         provider="x.com",
-                        acquisition_mode="browser_automation_experimental",
+                        acquisition_mode="official_api",
                         authority_tier="primary",
-                        primary_source_url="https://x.com/example/status/2",
-                        raw_record_id="2",
+                        primary_source_url="https://x.com/example/status/2027277539262235109",
+                        raw_record_id="2027277539262235109",
                     ),
-                    citation_chain=[
-                        CitationLink(
-                            label="Browser-collected liked post",
-                            url="https://x.com/example/status/2",
-                            relation="primary",
-                        )
-                    ],
                 )
             ]
 
-    monkeypatch.setattr(hermes_pulse.cli, "XBrowserConnector", FakeXBrowserConnector)
-    output_path = tmp_path / "deliveries" / "morning-browser-x.md"
-    profile_root = tmp_path / "x-browser-profile"
+    monkeypatch.setattr(hermes_pulse.cli, "XUrlConnector", FakeXConnector)
 
     assert (
         hermes_pulse.cli.main(
@@ -514,69 +494,189 @@ def test_morning_digest_collects_x_signals_from_authenticated_browser(monkeypatc
                 "morning-digest",
                 "--source-registry",
                 str(SOURCE_REGISTRY_PATH),
-                "--x-browser-signals",
+                "--x-signals",
                 "likes,home_timeline_reverse_chronological",
-                "--x-browser-profile-root",
-                str(profile_root),
-                "--x-browser-profile-directory",
-                "Profile 4",
-                "--x-browser-handle",
+                "--x-expected-username",
                 "Y20010920T",
-                "--x-browser-limit",
-                "20",
+                "--state-db",
+                str(state_db),
+                "--archive-root",
+                str(tmp_path / "Pulse"),
                 "--output",
-                str(output_path),
+                str(tmp_path / "digest.md"),
             ]
         )
         == 0
     )
 
-    assert browser_calls == [
+    assert calls == [
+        {"expected_username": "Y20010920T"},
+        {"signal_types": ["likes"], "since_ids": None},
         {
-            "constructor": {
-                "profile_root": profile_root,
-                "profile_directory": "Profile 4",
-                "expected_handle": "Y20010920T",
-                "limit": 20,
-            }
+            "signal_types": ["home_timeline_reverse_chronological"],
+            "since_ids": {"home_timeline_reverse_chronological": "2027277539262235108"},
         },
-        {"signal_types": ["likes", "home_timeline_reverse_chronological"]},
     ]
-    assert "Browser-collected liked post" in output_path.read_text()
 
 
-def test_refresh_x_browser_profile_command_copies_logged_in_profile_metadata(monkeypatch, tmp_path: Path) -> None:
+def test_morning_digest_collects_x_activity_likes_without_browser_state(monkeypatch, tmp_path: Path) -> None:
     calls: list[dict[str, object]] = []
-    source_root = tmp_path / "Chrome"
-    destination_root = tmp_path / "x-pulse-profile"
+    _install_stub_codex_summarizer(monkeypatch)
+    activity_log = tmp_path / "x-activity-likes.jsonl"
+    activity_log.write_text("")
 
-    def fake_refresh(**kwargs):
-        calls.append(kwargs)
-        return destination_root / "Profile 4"
+    class FakeActivityLikesConnector:
+        def __init__(self, *, event_log, expected_user_id, error_handler=None) -> None:
+            calls.append(
+                {
+                    "event_log": event_log,
+                    "expected_user_id": expected_user_id,
+                    "has_error_handler": callable(error_handler),
+                }
+            )
 
-    monkeypatch.setattr(hermes_pulse.cli, "refresh_x_browser_profile", fake_refresh)
+        def collect(self):
+            return [
+                CollectedItem(
+                    id="x_likes:9001",
+                    source="x_likes",
+                    source_kind="post",
+                    title="New activity like",
+                    excerpt="A new like from XAA.",
+                    url="https://x.com/example/status/2027277539262235108",
+                    timestamps=ItemTimestamps(created_at="2026-07-14T00:00:00Z"),
+                    provenance=Provenance(
+                        provider="x.com",
+                        acquisition_mode="official_api",
+                        authority_tier="primary",
+                        primary_source_url="https://x.com/example/status/2027277539262235108",
+                        raw_record_id="9001",
+                    ),
+                )
+            ]
+
+    monkeypatch.setattr(hermes_pulse.cli, "XActivityLikesConnector", FakeActivityLikesConnector)
 
     assert (
         hermes_pulse.cli.main(
             [
-                "refresh-x-browser-profile",
-                "--chrome-user-data-dir",
-                str(source_root),
-                "--chrome-profile-directory",
-                "Profile 4",
-                "--x-browser-profile-root",
-                str(destination_root),
-                "--x-browser-profile-directory",
-                "Profile 4",
+                "morning-digest",
+                "--source-registry",
+                str(SOURCE_REGISTRY_PATH),
+                "--x-activity-likes-file",
+                str(activity_log),
+                "--x-expected-user-id",
+                "3102332970",
+                "--archive-root",
+                str(tmp_path / "Pulse"),
+                "--output",
+                str(tmp_path / "digest.md"),
             ]
         )
         == 0
     )
+
     assert calls == [
         {
-            "source_user_data_dir": source_root,
-            "source_profile_directory": "Profile 4",
-            "destination_user_data_dir": destination_root,
-            "destination_profile_directory": "Profile 4",
+            "event_log": activity_log,
+            "expected_user_id": "3102332970",
+            "has_error_handler": True,
         }
     ]
+
+
+def test_morning_digest_skips_full_likes_reconcile_until_24_hours_elapsed(monkeypatch, tmp_path: Path) -> None:
+    state_db = tmp_path / "state.db"
+    upsert_connector_cursor(
+        state_db,
+        connector_id="x_likes_reconcile",
+        cursor=None,
+        last_poll_at="2026-07-14T00:00:00Z",
+        last_success_at="2026-07-14T00:00:00Z",
+        last_error=None,
+    )
+    calls: list[list[str]] = []
+    _install_stub_codex_summarizer(monkeypatch)
+
+    class FakeXConnector:
+        def __init__(self, *, expected_username=None) -> None:
+            pass
+
+        def collect(self, signal_types, *, since_ids=None):
+            calls.append(list(signal_types))
+            return []
+
+    monkeypatch.setattr(hermes_pulse.cli, "XUrlConnector", FakeXConnector)
+
+    assert (
+        hermes_pulse.cli.main(
+            [
+                "morning-digest",
+                "--source-registry",
+                str(SOURCE_REGISTRY_PATH),
+                "--state-db",
+                str(state_db),
+                "--x-signals",
+                "likes,home_timeline_reverse_chronological",
+                "--x-likes-reconcile-interval-hours",
+                "24",
+                "--x-expected-username",
+                "Y20010920T",
+                "--now",
+                "2026-07-14T06:00:00Z",
+                "--archive-root",
+                str(tmp_path / "Pulse"),
+                "--output",
+                str(tmp_path / "digest.md"),
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [["home_timeline_reverse_chronological"]]
+
+
+def test_x_signal_failure_is_isolated_per_signal(monkeypatch) -> None:
+    timeline_item = CollectedItem(
+        id="x_home_timeline_reverse_chronological:9002",
+        source="x_home_timeline_reverse_chronological",
+        source_kind="post",
+        title="Timeline update",
+        excerpt="Timeline body",
+        url="https://x.com/example/status/9002",
+        timestamps=ItemTimestamps(created_at="2026-07-14T08:00:00Z"),
+        provenance=Provenance(
+            provider="x.com",
+            acquisition_mode="official_api",
+            authority_tier="primary",
+            primary_source_url="https://x.com/example/status/9002",
+            raw_record_id="9002",
+        ),
+    )
+
+    class FakeXUrlConnector:
+        def __init__(self, expected_username=None) -> None:
+            assert expected_username == "Y20010920T"
+
+        def collect(self, signal_types, *, since_ids=None):
+            if signal_types == ["likes"]:
+                raise RuntimeError("likes unavailable")
+            assert signal_types == ["home_timeline_reverse_chronological"]
+            assert since_ids == {"home_timeline_reverse_chronological": "9001"}
+            return [timeline_item]
+
+    monkeypatch.setattr(hermes_pulse.cli, "XUrlConnector", FakeXUrlConnector)
+    source_errors: dict[str, str] = {}
+    successful_sources: set[str] = set()
+
+    items = hermes_pulse.cli._collect_x_signals_with_error_capture(
+        ["likes", "home_timeline_reverse_chronological"],
+        expected_username="Y20010920T",
+        since_ids={"home_timeline_reverse_chronological": "9001"},
+        source_errors=source_errors,
+        successful_sources=successful_sources,
+    )
+
+    assert items == [timeline_item]
+    assert source_errors == {"x_likes": "likes unavailable"}
+    assert successful_sources == {"x_home_timeline_reverse_chronological"}

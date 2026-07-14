@@ -19,6 +19,7 @@ def write_morning_digest_archive(
     archive_date: str,
     *,
     retrieved_at: str | None = None,
+    commit_source_ledgers: bool = True,
 ) -> Path:
     archive_root = Path(archive_root)
     archive_directory = archive_root / archive_date
@@ -27,11 +28,33 @@ def write_morning_digest_archive(
 
     retrieved_at = retrieved_at or _utc_now_isoformat()
     if _use_source_ledgers(archive_root):
-        diff_items = _append_source_ledgers(archive_root, items=items, retrieved_at=retrieved_at)
+        diff_items = _append_source_ledgers(
+            archive_root,
+            items=items,
+            retrieved_at=retrieved_at,
+            commit=commit_source_ledgers,
+        )
     else:
         diff_items = list(items)
     write_archive_raw_items(archive_directory, diff_items)
     return archive_directory
+
+
+def commit_source_ledger_items(
+    items: list[CollectedItem],
+    archive_root: str | Path,
+    *,
+    retrieved_at: str,
+) -> list[CollectedItem]:
+    archive_root = Path(archive_root)
+    if not _use_source_ledgers(archive_root):
+        return list(items)
+    return _append_source_ledgers(
+        archive_root,
+        items=items,
+        retrieved_at=retrieved_at,
+        commit=True,
+    )
 
 
 def write_archive_raw_items(archive_directory: str | Path, items: list[CollectedItem]) -> Path:
@@ -86,6 +109,7 @@ def _append_source_ledgers(
     *,
     items: list[CollectedItem],
     retrieved_at: str,
+    commit: bool,
 ) -> list[CollectedItem]:
     diff_items: list[CollectedItem] = []
     source_directory = archive_root / "sources"
@@ -102,6 +126,8 @@ def _append_source_ledgers(
             continue
         seen_identities.add(identity)
         fingerprint = _item_fingerprint(item)
+        if item.source in {"x_likes", "x_home_timeline_reverse_chronological"} and identity in seen_fingerprints:
+            continue
         if seen_fingerprints.get(identity) == fingerprint:
             continue
         seen_fingerprints[identity] = fingerprint
@@ -109,8 +135,9 @@ def _append_source_ledgers(
         record["retrieved_at"] = retrieved_at
         record["identity"] = identity
         record["fingerprint"] = fingerprint
-        with ledger_path.open("a", encoding="utf-8") as handle:
-            handle.write(_serialize_jsonl_record(record) + "\n")
+        if commit:
+            with ledger_path.open("a", encoding="utf-8") as handle:
+                handle.write(_serialize_jsonl_record(record) + "\n")
         diff_items.append(item)
     return diff_items
 

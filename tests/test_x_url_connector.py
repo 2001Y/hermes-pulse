@@ -33,6 +33,7 @@ def test_xurl_connector_collects_bookmarks_likes_and_reverse_chronological_home_
                     "text": "Liked benchmark result",
                     "created_at": "2026-04-20T09:00:00Z",
                     "author_id": "8",
+                    "entities": {"urls": [{"expanded_url": "https://example.com/liked-article"}]},
                 }
             ],
             "includes": {"users": [{"id": "8", "username": "anthropic"}]},
@@ -76,8 +77,46 @@ def test_xurl_connector_collects_bookmarks_likes_and_reverse_chronological_home_
     assert items[0].metadata["tweet_url"] == "https://x.com/openai/status/100"
     assert items[0].intent_signals is not None and items[0].intent_signals.saved is True
     assert items[1].intent_signals is not None and items[1].intent_signals.liked is True
+    assert items[1].url == "https://x.com/anthropic/status/101"
+    assert items[1].metadata["target_url"] == "https://example.com/liked-article"
     assert items[2].metadata["x_signal"] == "home_timeline_reverse_chronological"
     assert items[2].provenance is not None and items[2].provenance.acquisition_mode == "official_api"
+
+
+def test_xurl_connector_requests_only_timeline_posts_newer_than_saved_cursor() -> None:
+    requested_paths: list[str] = []
+
+    def runner(path: str, auth_type: str) -> dict:
+        requested_paths.append(path)
+        if path == "/2/users/me":
+            return {"data": {"id": "42", "username": "Y20010920T"}}
+        return {"data": []}
+
+    items = XUrlConnector(runner=runner, expected_username="Y20010920T").collect(
+        ["home_timeline_reverse_chronological"],
+        since_ids={"home_timeline_reverse_chronological": "2027277539262235108"},
+    )
+
+    assert items == []
+    assert requested_paths == [
+        "/2/users/me",
+        "/2/users/42/timelines/reverse_chronological?max_results=100&since_id=2027277539262235108&tweet.fields=created_at,author_id,text,entities",
+    ]
+
+
+def test_xurl_connector_fails_closed_when_authenticated_username_is_not_expected_account() -> None:
+    connector = XUrlConnector(
+        runner=lambda path, auth_type: {"data": {"id": "42", "username": "another_account"}},
+        expected_username="Y20010920T",
+    )
+
+    try:
+        connector.collect(["likes"])
+    except ValueError as exc:
+        assert "identity mismatch" in str(exc)
+        assert "Y20010920T" in str(exc)
+    else:
+        raise AssertionError("expected identity mismatch")
 
 
 def test_xurl_connector_rejects_unknown_signal_type() -> None:
@@ -203,6 +242,22 @@ def test_xurl_connector_limits_external_title_resolution_budget() -> None:
     assert synth_calls == [("First external link", "https://example.com/1")]
     assert items[0].title == "Synthesized title"
     assert items[1].title == "Second external link"
+
+
+def test_xurl_connector_reuses_verified_identity_across_isolated_signal_calls() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def runner(path: str, auth_type: str):
+        calls.append((path, auth_type))
+        if path == "/2/users/me":
+            return {"data": {"id": "42", "username": "Y20010920T"}}
+        return {"data": []}
+
+    connector = XUrlConnector(runner=runner, expected_username="Y20010920T")
+    assert connector.collect(["likes"]) == []
+    assert connector.collect(["home_timeline_reverse_chronological"]) == []
+
+    assert [path for path, _ in calls].count("/2/users/me") == 1
 
 
 def test_run_xurl_json_surfaces_credits_depleted_detail_without_account_id(monkeypatch) -> None:

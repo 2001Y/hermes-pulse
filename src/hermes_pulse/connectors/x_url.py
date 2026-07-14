@@ -1,6 +1,6 @@
 import json
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from hermes_pulse.models import CitationLink, CollectedItem, IntentSignals, ItemTimestamps, Provenance
@@ -35,14 +35,22 @@ class XUrlConnector:
         title_synthesizer: TitleSynthesizer | None = None,
         max_external_title_resolutions: int = 3,
         enable_title_synthesis: bool = False,
+        expected_username: str | None = None,
     ) -> None:
         self._runner = runner or _run_xurl_json
         self._title_fetcher = title_fetcher or fetch_title_from_url
         self._title_synthesizer = title_synthesizer or synthesize_title_with_codex_spark
         self._max_external_title_resolutions = max_external_title_resolutions
         self._enable_title_synthesis = enable_title_synthesis
+        self._expected_username = expected_username
+        self._resolved_identity: tuple[str, str] | None = None
 
-    def collect(self, signal_types: Sequence[str]) -> list[CollectedItem]:
+    def collect(
+        self,
+        signal_types: Sequence[str],
+        *,
+        since_ids: Mapping[str, str] | None = None,
+    ) -> list[CollectedItem]:
         unsupported = [signal_type for signal_type in signal_types if signal_type not in _SIGNAL_PATHS]
         if unsupported:
             raise ValueError(f"Unsupported X signal type: {unsupported[0]}")
@@ -50,17 +58,34 @@ class XUrlConnector:
         if not signal_types:
             return []
 
-        auth_type, me_payload = self._resolve_auth("/2/users/me")
-        me = me_payload.get("data") or {}
-        user_id = me.get("id")
-        if not user_id:
-            raise ValueError("xurl /2/users/me did not return a user id")
+        if self._resolved_identity is None:
+            auth_type, me_payload = self._resolve_auth("/2/users/me")
+            me = me_payload.get("data") or {}
+            user_id = me.get("id")
+            if not user_id:
+                raise ValueError("xurl /2/users/me did not return a user id")
+            username = me.get("username")
+            if self._expected_username is not None and (
+                not isinstance(username, str) or username.casefold() != self._expected_username.casefold()
+            ):
+                raise ValueError(
+                    f"xurl identity mismatch: expected @{self._expected_username}, got @{username or 'unknown'}"
+                )
+            self._resolved_identity = (auth_type, str(user_id))
+        auth_type, user_id = self._resolved_identity
 
+        since_ids = since_ids or {}
         items: list[CollectedItem] = []
         resolved_external_titles = 0
         for signal_type in signal_types:
             source, path_template = _SIGNAL_PATHS[signal_type]
-            payload = self._runner(path_template.format(user_id=user_id), auth_type)
+            path = path_template.format(user_id=user_id)
+            since_id = since_ids.get(signal_type)
+            if signal_type == "home_timeline_reverse_chronological" and since_id:
+                if not since_id.isdigit():
+                    raise ValueError("X timeline since_id must be numeric")
+                path = path.replace("?max_results=100&", f"?max_results=100&since_id={since_id}&", 1)
+            payload = self._runner(path, auth_type)
             new_items, used_external_title_resolutions = _parse_items(
                 source,
                 signal_type,
@@ -123,6 +148,10 @@ def _parse_items(
         if used_external_resolution:
             used_external_title_resolutions += 1
         intent = IntentSignals(saved=signal_type == "bookmarks", liked=signal_type == "likes")
+        item_url = target_url if signal_type == "bookmarks" else tweet_url
+        citation_chain = [CitationLink(label=title, url=item_url, relation="primary")]
+        if target_url != item_url:
+            citation_chain.append(CitationLink(label="Linked content", url=target_url, relation="secondary"))
         items.append(
             CollectedItem(
                 id=f"{source}:{tweet_id}",
@@ -131,17 +160,17 @@ def _parse_items(
                 title=title,
                 excerpt=text,
                 body=text,
-                url=target_url,
+                url=item_url,
                 timestamps=ItemTimestamps(created_at=record.get("created_at")),
                 intent_signals=intent,
                 provenance=Provenance(
                     provider="x.com",
                     acquisition_mode="official_api",
                     authority_tier="primary",
-                    primary_source_url=target_url,
+                    primary_source_url=item_url,
                     raw_record_id=tweet_id,
                 ),
-                citation_chain=[CitationLink(label=title, url=target_url, relation="primary")],
+                citation_chain=citation_chain,
                 metadata={
                     "x_signal": signal_type,
                     "author_id": record.get("author_id"),

@@ -2074,8 +2074,8 @@ def test_morning_digest_records_x_signal_connector_cursors(monkeypatch, tmp_path
 
     class FakeXConnector:
         def collect(self, signal_types: list[str]):
-            assert signal_types == ["bookmarks", "likes"]
-            return [
+            assert signal_types in (["bookmarks"], ["likes"])
+            items = [
                 hermes_pulse.cli.CollectedItem(
                     id="x-bookmarks:tweet-150",
                     source="x_bookmarks",
@@ -2116,6 +2116,8 @@ def test_morning_digest_records_x_signal_connector_cursors(monkeypatch, tmp_path
                     ),
                 ),
             ]
+            expected_source = "x_bookmarks" if signal_types == ["bookmarks"] else "x_likes"
+            return [item for item in items if item.source == expected_source]
 
     monkeypatch.setattr(hermes_pulse.cli, "XUrlConnector", FakeXConnector)
 

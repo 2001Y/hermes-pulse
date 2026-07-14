@@ -23,7 +23,7 @@ from hermes_pulse.connectors.hermes_history import HermesHistoryConnector
 from hermes_pulse.connectors.known_source_search import KnownSourceSearchConnector
 from hermes_pulse.connectors.location_context import LocationContextConnector, load_location_context_fixture
 from hermes_pulse.connectors.notes import NotesConnector
-from hermes_pulse.connectors.x_browser import XBrowserConnector, refresh_x_browser_profile
+from hermes_pulse.connectors.x_activity_likes import XActivityLikesConnector
 from hermes_pulse.connectors.x_url import XUrlConnector
 from hermes_pulse.exporters.chatgpt_export_prep import ChatGPTExportPreparer
 from hermes_pulse.exporters.grok_browser_export import GrokBrowserExporter
@@ -31,6 +31,7 @@ from hermes_pulse.exporters.grok_history_fallback import ChromeHistoryGrokExport
 from hermes_pulse.db import (
     get_approval_action_record,
     get_suppression,
+    initialize_database,
     list_active_suppression_subjects,
     list_connector_cursor_records,
     list_recent_approval_actions,
@@ -110,7 +111,6 @@ def build_parser() -> argparse.ArgumentParser:
             "refresh-chatgpt-history",
             "prepare-chatgpt-history",
             "refresh-x-oauth2",
-            "refresh-x-browser-profile",
             "state-summary",
         ),
     )
@@ -152,13 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retryable", action="store_true")
     parser.add_argument("--now")
     parser.add_argument("--x-signals")
-    parser.add_argument("--x-browser-signals")
-    parser.add_argument("--x-browser-profile-root", type=Path)
-    parser.add_argument("--x-browser-profile-directory", default="Profile 4")
-    parser.add_argument("--chrome-user-data-dir", type=Path)
-    parser.add_argument("--chrome-profile-directory", default="Profile 4")
-    parser.add_argument("--x-browser-handle")
-    parser.add_argument("--x-browser-limit", type=int, default=20)
+    parser.add_argument("--x-expected-username")
+    parser.add_argument("--x-likes-reconcile-interval-hours", type=int, default=0)
+    parser.add_argument("--x-activity-likes-file", type=Path)
+    parser.add_argument("--x-expected-user-id")
     return parser
 
 
@@ -225,18 +222,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_interactive_reauth=args.allow_interactive_reauth,
         )
         return 0
-    if args.command == "refresh-x-browser-profile":
-        if args.chrome_user_data_dir is None or args.x_browser_profile_root is None:
-            raise ValueError(
-                "refresh-x-browser-profile requires --chrome-user-data-dir and --x-browser-profile-root"
-            )
-        refresh_x_browser_profile(
-            source_user_data_dir=args.chrome_user_data_dir,
-            source_profile_directory=args.chrome_profile_directory,
-            destination_user_data_dir=args.x_browser_profile_root,
-            destination_profile_directory=args.x_browser_profile_directory,
-        )
-        return 0
     if args.command == "state-summary":
         if args.state_db is None:
             raise ValueError("state-summary requires --state-db")
@@ -281,9 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 pending_connector_cursor_update = (
                     items,
-                    _parse_x_signal_types(
-                        getattr(args, "x_browser_signals", None) or getattr(args, "x_signals", None)
-                    ),
+                    _parse_x_signal_types(getattr(args, "x_signals", None)),
                     _requested_history_connectors(args),
                     occurred_at,
                 )
@@ -500,6 +483,8 @@ def _apply_replay_window_if_requested(
     *,
     archive_root: Path,
     args: argparse.Namespace,
+    current_items: list[CollectedItem] | None = None,
+    current_retrieved_at: str | None = None,
 ) -> list[CollectedItem] | None:
     window_start = getattr(args, "window_start", None)
     window_end = getattr(args, "window_end", None)
@@ -510,8 +495,24 @@ def _apply_replay_window_if_requested(
         window_start=window_start,
         window_end=window_end,
     )
-    write_archive_raw_items(archive_directory, replay_items)
-    return replay_items
+    if current_items and current_retrieved_at:
+        current_time = _parse_timestamp(current_retrieved_at)
+        lower_bound = _parse_timestamp(window_start) if window_start else None
+        upper_bound = _parse_timestamp(window_end) if window_end else None
+        if (lower_bound is None or current_time >= lower_bound) and (
+            upper_bound is None or current_time < upper_bound
+        ):
+            replay_items.extend(current_items)
+    deduplicated_items: list[CollectedItem] = []
+    seen: set[tuple[str, str]] = set()
+    for item in replay_items:
+        identity = (item.source, item.url or item.id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduplicated_items.append(item)
+    write_archive_raw_items(archive_directory, deduplicated_items)
+    return deduplicated_items
 
 
 def _parse_x_signal_types(value: str | None) -> list[str]:
@@ -540,31 +541,83 @@ def _requested_history_connectors(args: argparse.Namespace) -> list[str]:
 def _collect_x_signals_with_error_capture(
     signal_types: list[str],
     *,
+    expected_username: str | None,
+    since_ids: dict[str, str],
     source_errors: dict[str, str],
     successful_sources: set[str],
 ) -> list[CollectedItem]:
-    try:
-        items = XUrlConnector().collect(signal_types)
-    except Exception as exc:
-        source_errors["x_signals"] = str(exc)
-        return []
-    successful_sources.add("x_signals")
+    connector = XUrlConnector(expected_username=expected_username) if expected_username else XUrlConnector()
+    items: list[CollectedItem] = []
+    for signal_type in signal_types:
+        source = _x_source_for_signal_type(signal_type)
+        signal_since_ids = {signal_type: since_ids[signal_type]} if signal_type in since_ids else {}
+        try:
+            signal_items = (
+                connector.collect([signal_type], since_ids=signal_since_ids)
+                if signal_since_ids
+                else connector.collect([signal_type])
+            )
+        except Exception as exc:
+            source_errors[source] = str(exc)
+            continue
+        successful_sources.add(source)
+        items.extend(signal_items)
     return items
 
 
-def _collect_x_browser_signals_with_error_capture(
-    connector: XBrowserConnector,
-    signal_types: list[str],
+def _x_since_ids_from_state(args: argparse.Namespace, signal_types: list[str]) -> dict[str, str]:
+    if args.state_db is None or "home_timeline_reverse_chronological" not in signal_types:
+        return {}
+    existing = _get_connector_cursor_state(
+        args.state_db,
+        connector_id="x_home_timeline_reverse_chronological",
+    )
+    if existing is None or not existing["cursor"]:
+        return {}
+    return {"home_timeline_reverse_chronological": existing["cursor"]}
+
+
+def _effective_x_signal_types(
+    args: argparse.Namespace,
+    requested_signal_types: list[str],
+    *,
+    occurred_at: str,
+) -> list[str]:
+    interval_hours = getattr(args, "x_likes_reconcile_interval_hours", 0)
+    if "likes" not in requested_signal_types or interval_hours <= 0 or args.state_db is None:
+        return requested_signal_types
+    existing = _get_connector_cursor_state(args.state_db, connector_id="x_likes_reconcile")
+    if existing is None or not existing["last_success_at"]:
+        return requested_signal_types
+    elapsed = _parse_timestamp(occurred_at) - _parse_timestamp(existing["last_success_at"])
+    if elapsed >= timedelta(hours=interval_hours):
+        return requested_signal_types
+    return [signal_type for signal_type in requested_signal_types if signal_type != "likes"]
+
+
+def _collect_x_activity_likes_with_error_capture(
+    event_log: Path,
+    expected_user_id: str | None,
     *,
     source_errors: dict[str, str],
     successful_sources: set[str],
 ) -> list[CollectedItem]:
-    try:
-        items = connector.collect(signal_types)
-    except Exception as exc:
-        source_errors["x_signals"] = str(exc)
+    if not expected_user_id:
+        source_errors["x_activity_likes"] = "X Activity likes require --x-expected-user-id"
         return []
-    successful_sources.add("x_signals")
+    errors: list[str] = []
+    try:
+        items = XActivityLikesConnector(
+            event_log=event_log,
+            expected_user_id=expected_user_id,
+            error_handler=errors.append,
+        ).collect()
+    except Exception as exc:
+        source_errors["x_activity_likes"] = str(exc)
+        return []
+    if errors:
+        source_errors["x_activity_likes"] = "; ".join(errors[:3])
+    successful_sources.add("x_activity_likes")
     return items
 
 
@@ -758,6 +811,7 @@ def _get_source_registry_state(path: Path, *, registry_id: str) -> dict[str, str
 
 
 def _get_connector_cursor_state(path: Path, *, connector_id: str) -> dict[str, str | None] | None:
+    initialize_database(path)
     with sqlite3.connect(path) as connection:
         row = connection.execute(
             "SELECT cursor, last_success_at, last_error FROM connector_cursors WHERE connector_id = ?",
@@ -1250,33 +1304,28 @@ def _build_digest_with_source_errors(command: str, args: argparse.Namespace) -> 
         connectors["chatgpt_history"] = BoundConnector(
             lambda: ChatGPTHistoryConnector().collect(args.chatgpt_history)
         )
-    if args.x_signals and getattr(args, "x_browser_signals", None):
-        raise ValueError("Use either --x-signals or --x-browser-signals, not both")
     if args.x_signals:
-        signal_types = _parse_x_signal_types(args.x_signals)
-        connectors["x_signals"] = BoundConnector(
-            lambda: _collect_x_signals_with_error_capture(
-                signal_types,
-                source_errors=source_errors,
-                successful_sources=successful_sources,
-            )
+        requested_signal_types = [value.strip() for value in args.x_signals.split(",") if value.strip()]
+        signal_types = _effective_x_signal_types(
+            args,
+            requested_signal_types,
+            occurred_at=_occurred_at_for_command(command, args),
         )
-    if getattr(args, "x_browser_signals", None):
-        if args.x_browser_profile_root is None or args.x_browser_handle is None:
-            raise ValueError(
-                "--x-browser-signals requires --x-browser-profile-root and --x-browser-handle"
+        if signal_types:
+            connectors["x_signals"] = BoundConnector(
+                lambda: _collect_x_signals_with_error_capture(
+                    signal_types,
+                    expected_username=getattr(args, "x_expected_username", None),
+                    since_ids=_x_since_ids_from_state(args, signal_types),
+                    source_errors=source_errors,
+                    successful_sources=successful_sources,
+                )
             )
-        browser_signal_types = _parse_x_signal_types(args.x_browser_signals)
-        x_browser_connector = XBrowserConnector(
-            profile_root=args.x_browser_profile_root,
-            profile_directory=args.x_browser_profile_directory,
-            expected_handle=args.x_browser_handle,
-            limit=args.x_browser_limit,
-        )
-        connectors["x_signals"] = BoundConnector(
-            lambda: _collect_x_browser_signals_with_error_capture(
-                x_browser_connector,
-                browser_signal_types,
+    if getattr(args, "x_activity_likes_file", None) is not None:
+        connectors["x_activity_likes"] = BoundConnector(
+            lambda: _collect_x_activity_likes_with_error_capture(
+                args.x_activity_likes_file,
+                getattr(args, "x_expected_user_id", None),
                 source_errors=source_errors,
                 successful_sources=successful_sources,
             )

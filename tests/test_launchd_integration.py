@@ -95,55 +95,31 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
     ]
 
 
-def test_render_direct_delivery_wrapper_uses_authenticated_browser_x_signals_without_xurl() -> None:
+def test_render_direct_delivery_wrapper_wires_incremental_timeline_and_activity_likes() -> None:
     spec = DirectDeliveryWrapperSpec(
-        python_executable=Path("/Users/akitani/.hermes/hermes-agent/venv/bin/python"),
+        python_executable=Path("/opt/homebrew/bin/python3"),
         repo_root=REPO_ROOT,
         channel="D0AT8A3RB9A",
-        x_browser_signals="likes,home_timeline_reverse_chronological",
-        x_browser_profile_root=Path("/Users/akitani/.hermes/browser/x-pulse-profile"),
-        x_browser_profile_directory="Profile 4",
-        x_browser_handle="Y20010920T",
-        x_browser_limit=20,
-        chrome_user_data_dir=Path("/Users/akitani/Library/Application Support/Google/Chrome"),
-        chrome_profile_directory="Profile 4",
+        state_db=Path("/Users/akitani/.hermes/state/hermes-pulse.db"),
+        x_signals="likes,home_timeline_reverse_chronological",
+        x_expected_username="Y20010920T",
+        x_likes_reconcile_interval_hours=24,
+        x_activity_likes_file=Path("/Users/akitani/.hermes/hermes-pulse/runtime_inputs/x-activity-likes.jsonl"),
+        x_expected_user_id="3102332970",
     )
 
     wrapper = render_direct_delivery_wrapper(spec)
-
-    assert "xurl auth" not in wrapper
-    assert "refresh-x-oauth2" not in wrapper
-    refresh_line = next(line for line in wrapper.splitlines() if "refresh-x-browser-profile" in line)
-    assert shlex.split(refresh_line.strip().removeprefix("if ! ").removesuffix(" >/dev/null 2>&1; then")) == [
-        "/Users/akitani/.hermes/hermes-agent/venv/bin/python",
-        "-m",
-        "hermes_pulse.cli",
-        "refresh-x-browser-profile",
-        "--chrome-user-data-dir",
-        "/Users/akitani/Library/Application Support/Google/Chrome",
-        "--chrome-profile-directory",
-        "Profile 4",
-        "--x-browser-profile-root",
-        "/Users/akitani/.hermes/browser/x-pulse-profile",
-        "--x-browser-profile-directory",
-        "Profile 4",
-    ]
-    assert 'echo "warning: X browser profile refresh failed; digest will continue with existing browser profile" >&2' in wrapper
     exec_line = next(line for line in wrapper.splitlines() if line.startswith("exec "))
-    exec_args = shlex.split(exec_line.removeprefix("exec "))
-    browser_start = exec_args.index("--x-browser-signals")
-    assert exec_args[browser_start : browser_start + 10] == [
-        "--x-browser-signals",
-        "likes,home_timeline_reverse_chronological",
-        "--x-browser-profile-root",
-        "/Users/akitani/.hermes/browser/x-pulse-profile",
-        "--x-browser-profile-directory",
-        "Profile 4",
-        "--x-browser-handle",
-        "Y20010920T",
-        "--x-browser-limit",
-        "20",
-    ]
+    arguments = shlex.split(exec_line.removeprefix("exec "))
+
+    assert arguments[arguments.index("--x-signals") + 1] == "likes,home_timeline_reverse_chronological"
+    assert arguments[arguments.index("--x-expected-username") + 1] == "Y20010920T"
+    assert arguments[arguments.index("--x-likes-reconcile-interval-hours") + 1] == "24"
+    assert arguments[arguments.index("--state-db") + 1] == "/Users/akitani/.hermes/state/hermes-pulse.db"
+    assert arguments[arguments.index("--x-activity-likes-file") + 1].endswith("x-activity-likes.jsonl")
+    assert arguments[arguments.index("--x-expected-user-id") + 1] == "3102332970"
+    assert "bookmarks" not in arguments
+    assert "x-browser-signals" not in wrapper
 
 
 def test_render_launchd_plist_serializes_label_schedule_and_program_arguments() -> None:

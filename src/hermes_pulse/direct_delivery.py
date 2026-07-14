@@ -10,8 +10,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
-from hermes_pulse.archive import write_morning_digest_archive
-from hermes_pulse.cli import _archive_label_for_args, _apply_replay_window_if_requested, _build_digest_with_source_errors, _occurred_at_for_command
+from hermes_pulse.archive import commit_source_ledger_items, write_morning_digest_archive
+from hermes_pulse.db import upsert_connector_cursor
+from hermes_pulse.cli import (
+    _apply_replay_window_if_requested,
+    _archive_label_for_args,
+    _build_digest_with_source_errors,
+    _effective_x_signal_types,
+    _occurred_at_for_command,
+    _parse_x_signal_types,
+    _record_connector_cursors_from_items,
+)
 from hermes_pulse.summarization import CodexCliSummarizer
 from hermes_pulse.summarization.base import CODEX_DIGEST_RELATIVE_PATH, RAW_ITEMS_RELATIVE_PATH, SummaryArtifact
 from hermes_pulse.summarization.codex_cli import (
@@ -68,12 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window-start")
     parser.add_argument("--window-end")
     parser.add_argument("--now")
+    parser.add_argument("--state-db", type=Path)
     parser.add_argument("--x-signals")
-    parser.add_argument("--x-browser-signals")
-    parser.add_argument("--x-browser-profile-root", type=Path)
-    parser.add_argument("--x-browser-profile-directory", default="Profile 4")
-    parser.add_argument("--x-browser-handle")
-    parser.add_argument("--x-browser-limit", type=int, default=20)
+    parser.add_argument("--x-expected-username")
+    parser.add_argument("--x-likes-reconcile-interval-hours", type=int, default=0)
+    parser.add_argument("--x-activity-likes-file", type=Path)
+    parser.add_argument("--x-expected-user-id")
     parser.add_argument("--codex-model", default=DEFAULT_CODEX_MODEL)
     parser.add_argument("--summary-format", default=DEFAULT_SUMMARY_FORMAT)
     parser.add_argument("--channel", required=True)
@@ -93,20 +102,29 @@ def run_digest_direct_delivery(
     post_message: SlackPoster | None = None,
 ) -> DirectDeliveryResult:
     command = getattr(args, "command", "morning-digest")
-    items, source_errors, _successful_sources = _build_digest_with_source_errors(command, args)
-    archive_root = args.archive_root or Path.home() / "Pulse"
     occurred_at = _occurred_at_for_command(command, args)
+    requested_x_signal_types = _parse_x_signal_types(getattr(args, "x_signals", None))
+    effective_x_signal_types = _effective_x_signal_types(
+        args,
+        requested_x_signal_types,
+        occurred_at=occurred_at,
+    )
+    items, source_errors, successful_sources = _build_digest_with_source_errors(command, args)
+    archive_root = args.archive_root or Path.home() / "Pulse"
     archive_directory = write_morning_digest_archive(
         items=items,
         archive_root=archive_root,
         archive_date=_archive_label_for_args(args),
         retrieved_at=occurred_at,
+        commit_source_ledgers=False,
     )
     _write_source_errors_metadata(archive_directory, source_errors)
     _apply_replay_window_if_requested(
         archive_directory,
         archive_root=archive_root,
         args=args,
+        current_items=items,
+        current_retrieved_at=occurred_at,
     )
     artifact = _summarize_archive_with_retries(
         archive_directory,
@@ -114,13 +132,39 @@ def run_digest_direct_delivery(
         summary_format=args.summary_format,
         digest_command=command,
     )
-    return post_canonical_digest_to_slack(
+    result = post_canonical_digest_to_slack(
         archive_directory,
         channel=args.channel,
         thread_ts=args.thread_ts,
         post_message=post_message,
         summary_artifact=artifact,
     )
+    commit_source_ledger_items(items, archive_root, retrieved_at=occurred_at)
+    state_db = getattr(args, "state_db", None)
+    if state_db is not None:
+        incremental_signal_types = [
+            signal_type
+            for signal_type in _parse_x_signal_types(getattr(args, "x_signals", None))
+            if signal_type == "home_timeline_reverse_chronological"
+        ]
+        if incremental_signal_types:
+            _record_connector_cursors_from_items(
+                state_db,
+                items=items,
+                occurred_at=occurred_at,
+                x_signal_types=incremental_signal_types,
+                history_connectors=[],
+            )
+        if "likes" in effective_x_signal_types and "x_likes" in successful_sources:
+            upsert_connector_cursor(
+                state_db,
+                connector_id="x_likes_reconcile",
+                cursor=None,
+                last_poll_at=occurred_at,
+                last_success_at=occurred_at,
+                last_error=None,
+            )
+    return result
 
 
 def run_morning_digest_direct_delivery(
