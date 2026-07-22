@@ -19,7 +19,7 @@ HERMES_HISTORY_PATH = ROOT / "fixtures/hermes_history/sample_session.json"
 CHATGPT_HISTORY_PATH = ROOT / "fixtures/chatgpt_history/sample_export"
 GROK_HISTORY_PATH = ROOT / "fixtures/grok_history/sample_export"
 NOTES_PATH = ROOT / "fixtures/notes/sample_notes.md"
-DEFAULT_CODEX_MODEL = "gpt-5.4"
+DEFAULT_CODEX_MODEL = "gpt-5.3-codex-spark"
 DEFAULT_SUMMARY_FORMAT = "briefing-v1"
 EXPECTED_TITLE = "☀ *Hermes Pulse Morning Briefing*"
 EXPECTED_EVENING_TITLE = "☾ *Hermes Pulse Evening Briefing*"
@@ -724,6 +724,13 @@ def test_build_parser_accepts_digest_command_codex_model_and_summary_format() ->
     assert browser_args.x_browser_limit == 20
 
 
+def test_build_parser_rejects_non_spark_model() -> None:
+    with pytest.raises(SystemExit):
+        direct_delivery.build_parser().parse_args(
+            ["--channel", "D123", "--codex-model", "gpt-5.4"]
+        )
+
+
 def test_run_digest_direct_delivery_uses_requested_digest_command(monkeypatch, tmp_path: Path) -> None:
     archive_root = tmp_path / "archive-root"
     requested_commands: list[str] = []
@@ -810,6 +817,26 @@ def test_summarize_archive_with_retries_uses_requested_model_and_format() -> Non
 
     assert artifact.content == "# digest"
     assert calls == [{"archive_directory": "/tmp/archive"}]
+
+
+def test_summarize_archive_with_retries_rejects_non_spark_before_factory() -> None:
+    factory_called = False
+
+    def forbidden_factory(**_kwargs):
+        nonlocal factory_called
+        factory_called = True
+        raise AssertionError("factory must not run for a forbidden model")
+
+    with pytest.raises(ValueError, match="Hermes Pulse requires gpt-5.3-codex-spark"):
+        direct_delivery._summarize_archive_with_retries(
+            Path("/tmp/archive"),
+            codex_model="gpt-5.4",
+            retry_delays_seconds=(),
+            summarizer_factory=forbidden_factory,
+            sleep=lambda _seconds: None,
+        )
+
+    assert factory_called is False
 
 
 def test_summarize_archive_with_retries_supports_legacy_summarizer_factories_without_digest_command() -> None:

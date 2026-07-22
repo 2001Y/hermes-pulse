@@ -3,7 +3,9 @@ from __future__ import annotations
 import subprocess
 from html.parser import HTMLParser
 
-DEFAULT_TITLE_SYNTH_MODEL = "gpt-5.4"
+from hermes_pulse.model_policy import PULSE_CODEX_MODEL, require_pulse_codex_model
+
+DEFAULT_TITLE_SYNTH_MODEL = PULSE_CODEX_MODEL
 DEFAULT_TITLE_FETCH_TIMEOUT_SECONDS = 5
 DEFAULT_TITLE_SYNTH_TIMEOUT_SECONDS = 30
 
@@ -67,6 +69,7 @@ def synthesize_title_with_codex_spark(
     model: str = DEFAULT_TITLE_SYNTH_MODEL,
     timeout_seconds: int = DEFAULT_TITLE_SYNTH_TIMEOUT_SECONDS,
 ) -> str | None:
+    require_pulse_codex_model(model)
     prompt = "\n".join(
         [
             "次の URL と本文断片から、情報量を落としすぎない 1 行タイトルだけを返してください。",

@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from hermes_pulse.categories import category_label, group_raw_items_by_category
+from hermes_pulse.model_policy import PULSE_CODEX_MODEL, require_pulse_codex_model
 from hermes_pulse.summarization.base import (
     CODEX_DIGEST_RELATIVE_PATH,
     RAW_ITEMS_RELATIVE_PATH,
@@ -15,7 +16,7 @@ from hermes_pulse.summarization.base import (
 from hermes_pulse.title_resolution import fetch_title_from_url, synthesize_title_with_codex_spark
 
 DEFAULT_CODEX_TIMEOUT_SECONDS = 900
-DEFAULT_CODEX_MODEL = "gpt-5.4"
+DEFAULT_CODEX_MODEL = PULSE_CODEX_MODEL
 DEFAULT_SUMMARY_FORMAT = "briefing-v1"
 MAX_PROMPT_RAW_ITEMS = 50
 HEADLINE_STYLE_INSTRUCTION = (
@@ -44,6 +45,7 @@ class CodexCliSummarizer:
         title_fetcher=None,
         title_synthesizer=None,
     ) -> None:
+        require_pulse_codex_model(model)
         self._invocation = invocation or CodexCliInvocation(model=model)
         self._summary_format = summary_format
         self._digest_command = digest_command
@@ -116,7 +118,7 @@ class CodexCliInvocation:
         timeout_seconds: int = DEFAULT_CODEX_TIMEOUT_SECONDS,
     ) -> None:
         self._executable = executable
-        self._model = model
+        self._model = require_pulse_codex_model(model)
         self._timeout_seconds = timeout_seconds
 
     def run(self, prompt: str, *, cwd: Path) -> str:

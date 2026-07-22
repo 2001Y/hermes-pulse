@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from hermes_pulse.archive import write_morning_digest_archive
 from hermes_pulse.cli import _archive_label_for_args, _apply_replay_window_if_requested, _build_digest_with_source_errors, _occurred_at_for_command
+from hermes_pulse.model_policy import require_pulse_codex_model
 from hermes_pulse.summarization import CodexCliSummarizer
 from hermes_pulse.summarization.base import CODEX_DIGEST_RELATIVE_PATH, RAW_ITEMS_RELATIVE_PATH, SummaryArtifact
 from hermes_pulse.summarization.codex_cli import (
@@ -74,7 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--x-browser-profile-directory", default="Profile 4")
     parser.add_argument("--x-browser-handle")
     parser.add_argument("--x-browser-limit", type=int, default=20)
-    parser.add_argument("--codex-model", default=DEFAULT_CODEX_MODEL)
+    parser.add_argument(
+        "--codex-model",
+        choices=(DEFAULT_CODEX_MODEL,),
+        default=DEFAULT_CODEX_MODEL,
+    )
     parser.add_argument("--summary-format", default=DEFAULT_SUMMARY_FORMAT)
     parser.add_argument("--channel", required=True)
     parser.add_argument("--thread-ts")
@@ -141,6 +146,7 @@ def _summarize_archive_with_retries(
     summarizer_factory: Callable[..., Any] | None = None,
     sleep: Callable[[int], None] = time.sleep,
 ) -> SummaryArtifact:
+    codex_model = require_pulse_codex_model(codex_model)
     last_error: Exception | None = None
     attempts = len(tuple(retry_delays_seconds)) + 1
     delays = list(retry_delays_seconds)

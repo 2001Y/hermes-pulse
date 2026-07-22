@@ -2,6 +2,8 @@ import plistlib
 import shlex
 from pathlib import Path
 
+import pytest
+
 from hermes_pulse.launchd import (
     DirectDeliveryWrapperSpec,
     GeneratedLaunchdArtifacts,
@@ -17,6 +19,16 @@ from hermes_pulse.launchd import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_direct_delivery_wrapper_spec_rejects_non_spark_model() -> None:
+    with pytest.raises(ValueError, match="Hermes Pulse requires gpt-5.3-codex-spark"):
+        DirectDeliveryWrapperSpec(
+            python_executable=Path("/opt/homebrew/bin/python3"),
+            repo_root=REPO_ROOT,
+            channel="C123456",
+            codex_model="gpt-5.4",
+        )
+
+
 def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_archive_args() -> None:
     spec = DirectDeliveryWrapperSpec(
         python_executable=Path("/opt/homebrew/bin/python3"),
@@ -29,7 +41,7 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
         grok_history=Path("/Users/akitani/Pulse/Imports/grok/browser-export"),
         grok_history_fallback_db=Path("/Users/akitani/Library/Application Support/Google/Chrome/Profile 4/History"),
         x_signals="bookmarks,likes,home_timeline_reverse_chronological",
-        codex_model="gpt-5.4",
+        codex_model="gpt-5.3-codex-spark",
         summary_format="briefing-v1",
         digest_command="evening-digest",
     )
@@ -89,7 +101,7 @@ def test_render_direct_delivery_wrapper_targets_module_with_channel_thread_and_a
         "--x-signals",
         "bookmarks,likes,home_timeline_reverse_chronological",
         "--codex-model",
-        "gpt-5.4",
+        "gpt-5.3-codex-spark",
         "--summary-format",
         "briefing-v1",
     ]
@@ -256,7 +268,7 @@ def test_generate_launchd_artifacts_writes_wrapper_and_plist_to_output_directory
             grok_history=Path("/Users/akitani/Pulse/Imports/grok/browser-export"),
             grok_history_fallback_db=Path("/Users/akitani/Library/Application Support/Google/Chrome/Profile 4/History"),
             x_signals="bookmarks,likes",
-            codex_model="gpt-5.4",
+            codex_model="gpt-5.3-codex-spark",
             summary_format="briefing-v1",
             digest_command="evening-digest",
         ),
@@ -306,7 +318,7 @@ def test_generate_launchd_artifacts_writes_wrapper_and_plist_to_output_directory
         "--x-signals",
         "bookmarks,likes",
         "--codex-model",
-        "gpt-5.4",
+        "gpt-5.3-codex-spark",
         "--summary-format",
         "briefing-v1",
     ]

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from hermes_pulse.model_policy import require_pulse_codex_model
 from hermes_pulse.summarization.codex_cli import DEFAULT_CODEX_MODEL, DEFAULT_SUMMARY_FORMAT
 
 DEFAULT_LAUNCHD_PATH = "/Users/akitani/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -44,6 +45,9 @@ class DirectDeliveryWrapperSpec:
     working_directory: Path | None = None
     shared_env_path: Path = DEFAULT_SHARED_ENV_PATH
     xurl_app_name: str = DEFAULT_XURL_APP_NAME
+
+    def __post_init__(self) -> None:
+        require_pulse_codex_model(self.codex_model)
 
 
 @dataclass(frozen=True)
